@@ -57,9 +57,48 @@ const PRIORITY_OPTIONS = ["Basse", "Moyenne", "Haute", "Critique"];
 const DOC_MODES = ["all", "internal", "external"];
 const DOC_STATUS = ["Brouillon", "À valider", "Validé", "Publié", "Archivé"];
 const ATHLETE_STATUS = ["Actif", "À relancer", "Blessé", "Absent"];
+const ATHLETE_PROFILE_OPTIONS = ["Homme", "Femme", "Junior"];
 const CLUB_STATUS = ["À contacter", "Invité", "Inscrit", "Validé"];
 const COMM_STATUS = ["Brouillon", "Prêt à envoyer", "Envoyée"];
 const CUSTOM_FIELD_TYPES = ["texte", "nombre", "pourcentage", "date", "financier", "statut", "case_a_cocher", "personne"];
+const DASHBOARD_WIDGET_TYPES = [
+  { id: "number", label: "Nombre" },
+  { id: "bar", label: "Barres" },
+  { id: "donut", label: "Donut" },
+];
+const DASHBOARD_SOURCES = [
+  { id: "tasks", label: "Tâches" },
+  { id: "projects", label: "Projets" },
+  { id: "athletes", label: "Athlètes" },
+  { id: "clubs", label: "Sections" },
+];
+const DASHBOARD_FILTERS = [
+  { id: "all", label: "Tous" },
+  { id: "completed", label: "Terminés" },
+  { id: "open", label: "Non terminés" },
+  { id: "overdue", label: "En retard" },
+  { id: "upcoming", label: "À venir 14 jours" },
+  { id: "highPriority", label: "Haute priorité" },
+  { id: "unassigned", label: "Non assignés" },
+  { id: "incomplete", label: "À compléter" },
+  { id: "budget", label: "Budget" },
+];
+const DASHBOARD_GROUPS = [
+  { id: "status", label: "Statut" },
+  { id: "priority", label: "Priorité" },
+  { id: "section", label: "Section" },
+  { id: "profile", label: "Profil" },
+  { id: "assignee", label: "Responsable" },
+];
+const DEFAULT_DASHBOARD_WIDGETS = [
+  { id: "dw_completed_tasks", type: "number", title: "Tâches terminées", source: "tasks", filter: "completed", tone: "green" },
+  { id: "dw_open_tasks", type: "number", title: "Tâches non terminées", source: "tasks", filter: "open", tone: "slate" },
+  { id: "dw_overdue_tasks", type: "number", title: "Tâches en retard", source: "tasks", filter: "overdue", tone: "red" },
+  { id: "dw_total_budget", type: "number", title: "Budget total", source: "projects", filter: "budget", tone: "green" },
+  { id: "dw_tasks_status_bar", type: "bar", title: "Tâches par statut", source: "tasks", filter: "all", groupBy: "status", tone: "violet", size: "wide" },
+  { id: "dw_athletes_section_bar", type: "bar", title: "Athlètes par section", source: "athletes", filter: "all", groupBy: "section", tone: "blue", size: "wide" },
+  { id: "dw_tasks_status_donut", type: "donut", title: "Achèvement des tâches", source: "tasks", filter: "all", groupBy: "status", tone: "violet", size: "wide" },
+];
 
 const uid = () => crypto.randomUUID();
 
@@ -269,12 +308,12 @@ const defaultData = {
     },
   ],
   athletes: [
-    { id: uid(), name: "Athlète exemple 1", sport: "developpe_couche", category: "-88 kg", coach: "Coach JAM", email: "", phone: "", status: "Actif", notes: "Suivi force.", workspaceId: "ws_jam" },
-    { id: uid(), name: "Athlète exemple 2", sport: "football", category: "U13", coach: "Coach Terrain", email: "", phone: "", status: "À relancer", notes: "Feuille de match.", workspaceId: "ws_jam" },
+    { id: uid(), name: "Athlète exemple 1", sport: "developpe_couche", subSection: "-88 kg", category: "Homme", coach: "Coach JAM", email: "", phone: "", status: "Actif", notes: "Suivi force.", workspaceId: "ws_jam" },
+    { id: uid(), name: "Athlète exemple 2", sport: "football", subSection: "U13", category: "Junior", coach: "Coach Terrain", email: "", phone: "", status: "À relancer", notes: "Feuille de match.", workspaceId: "ws_jam" },
   ],
   clubs: [
-    { id: uid(), name: "JAM", sport: "developpe_couche", city: "Montrouge", contactName: "Samy", email: "", phone: "", delegationSize: "12", status: "Validé", notes: "Club organisateur.", workspaceId: "ws_jam" },
-    { id: uid(), name: "Club Exemple Paris", sport: "football", city: "Paris", contactName: "Responsable club", email: "", phone: "", delegationSize: "18", status: "Invité", notes: "À relancer.", workspaceId: "ws_jam" },
+    { id: uid(), name: "Développé couché", sport: "developpe_couche", city: "Montrouge", contactName: "Samy", email: "", phone: "", delegationSize: "12", status: "Validé", notes: "Section interne JAM.", subSections: ["-59 kg", "-66 kg", "-74 kg", "-83 kg", "-93 kg", "-105 kg", "+105 kg"], workspaceId: "ws_jam" },
+    { id: uid(), name: "Football", sport: "football", city: "Montrouge", contactName: "Responsable section", email: "", phone: "", delegationSize: "18", status: "Inscrit", notes: "Section football JAM.", subSections: ["U7", "U9", "U11", "U13", "U15"], workspaceId: "ws_jam" },
   ],
   documents: [
     { id: uid(), sport: "developpe_couche", title: "Feuille d'entraînement type", type: "Suivi sportif", status: "Validé", notes: "Modèle à transmettre.", url: "", content: "Exemple de contenu interne pour suivi sportif.", workspaceId: "ws_jam" },
@@ -288,6 +327,7 @@ const defaultData = {
     clubs: { customCols: [], hiddenCols: [], renamed: {}, typeOverrides: {}, order: [], groupBy: null, filters: {} },
     documents: { customCols: [], hiddenCols: [], renamed: {}, typeOverrides: {}, order: [], groupBy: null, filters: {} },
   },
+  dashboardWidgets: DEFAULT_DASHBOARD_WIDGETS,
 };
 
 function loadData() {
@@ -297,6 +337,21 @@ function loadData() {
     const parsed = JSON.parse(raw);
     const addWs = (arr) => (arr || []).map((item) => item.workspaceId ? item : { ...item, workspaceId: "ws_jam" });
     const addDocDefaults = (arr) => addWs(arr).map((doc) => ({ status: doc.url ? "Publié" : "Brouillon", ...doc }));
+    const clubs = addWs(parsed.clubs || defaultData.clubs).map((section) => ({
+      ...section,
+      subSections: Array.isArray(section.subSections) ? section.subSections : String(section.subSections || "").split(",").map((item) => item.trim()).filter(Boolean),
+    }));
+    const athletes = addWs(parsed.athletes || defaultData.athletes).map((athlete) => {
+      const legacyCategory = String(athlete.category || "").trim();
+      const categoryIsProfile = ATHLETE_PROFILE_OPTIONS.includes(legacyCategory);
+      const fallbackSection = clubs.find((section) => section.workspaceId === athlete.workspaceId && section.sport === athlete.sport);
+      return {
+        ...athlete,
+        sectionId: athlete.sectionId || fallbackSection?.id || "",
+        subSection: athlete.subSection || (categoryIsProfile ? "" : legacyCategory),
+        category: categoryIsProfile ? legacyCategory : "",
+      };
+    });
     return {
       ...defaultData,
       ...parsed,
@@ -304,12 +359,13 @@ function loadData() {
       currentWorkspaceId: parsed.currentWorkspaceId || "ws_jam",
       projects: addWs(parsed.projects || defaultData.projects),
       tasks: addWs(parsed.tasks || defaultData.tasks),
-      athletes: addWs(parsed.athletes || defaultData.athletes),
-      clubs: addWs(parsed.clubs || defaultData.clubs),
+      athletes,
+      clubs,
       documents: addDocDefaults(parsed.documents || defaultData.documents),
       convocations: addWs(parsed.convocations || defaultData.convocations),
       notifications: addWs(parsed.notifications || defaultData.notifications),
       tableConfig: { ...defaultData.tableConfig, ...(parsed.tableConfig || {}) },
+      dashboardWidgets: parsed.dashboardWidgets?.length ? parsed.dashboardWidgets : DEFAULT_DASHBOARD_WIDGETS,
     };
   } catch {
     return defaultData;
@@ -331,6 +387,20 @@ function badgeClass(kind, value) {
   if (value === "Haute") return "bg-orange-100 text-orange-700 border-orange-200";
   if (value === "Moyenne") return "bg-violet-100 text-violet-700 border-violet-200";
   return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function statusCellClass(value) {
+  if (value === "Terminé") return "bg-emerald-500 text-white";
+  if (value === "En cours") return "bg-blue-500 text-white";
+  if (value === "En attente") return "bg-amber-400 text-slate-950";
+  return "bg-slate-200 text-slate-700";
+}
+
+function priorityDotClass(value) {
+  if (value === "Critique") return "bg-red-500";
+  if (value === "Haute") return "bg-orange-500";
+  if (value === "Moyenne") return "bg-violet-500";
+  return "bg-slate-400";
 }
 
 function progressTone(value) {
@@ -674,8 +744,8 @@ function makeSportId(name) {
     .replace(/^_+|_+$/g, "");
 }
 
-function Card({ children, className = "" }) {
-  return <div className={`bg-white rounded-2xl border border-slate-200 shadow-sm ${className}`}>{children}</div>;
+function Card({ children, className = "", ...props }) {
+  return <div className={`bg-white rounded-2xl border border-slate-200 shadow-sm ${className}`} {...props}>{children}</div>;
 }
 
 function Badge({ children, className = "" }) {
@@ -794,7 +864,7 @@ function KanbanBoard({ rows, statuses, getStatus = (row) => row.status, onStatus
   );
 }
 
-function StatCard({ title, value, subtitle, Icon, tone = "slate" }) {
+function StatCard({ title, value, subtitle, Icon, tone = "slate", onClick }) {
   const tones = {
     slate: "bg-slate-100 text-slate-700",
     blue: "bg-blue-100 text-blue-700",
@@ -803,8 +873,8 @@ function StatCard({ title, value, subtitle, Icon, tone = "slate" }) {
     red: "bg-red-100 text-red-700",
     violet: "bg-violet-100 text-violet-700",
   };
-  return (
-    <Card className="p-4">
+  const content = (
+    <>
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <p className="text-sm text-slate-500">{title}</p>
@@ -813,6 +883,23 @@ function StatCard({ title, value, subtitle, Icon, tone = "slate" }) {
         </div>
         <div className={`p-2.5 rounded-xl ${tones[tone] || tones.slate}`}><Icon className="w-5 h-5" /></div>
       </div>
+      {onClick && <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Ouvrir</p>}
+    </>
+  );
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="group w-full text-left bg-white rounded-2xl border border-slate-200 shadow-sm p-4 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900/20"
+      >
+        {content}
+      </button>
+    );
+  }
+  return (
+    <Card className="p-4">
+      {content}
     </Card>
   );
 }
@@ -1203,6 +1290,7 @@ function ImportPreviewModal({ preview, onClose, onConfirm, onTabChange }) {
   if (!preview) return null;
   const tabs = [
     { id: "athletes", label: "Athlètes", rows: preview.athleteRows || [], required: "Nom complet" },
+    { id: "clubs", label: "Sections", rows: preview.sectionRows || [], required: "Section" },
     { id: "projects", label: "Projets", rows: preview.projectRows || [], required: "Nom du projet" },
     { id: "tasks", label: "Tâches", rows: preview.taskRows || [], required: "Titre" },
   ];
@@ -1227,7 +1315,7 @@ function ImportPreviewModal({ preview, onClose, onConfirm, onTabChange }) {
         </div>
 
         <div className="p-6 space-y-5">
-          <div className="grid md:grid-cols-3 gap-3">
+          <div className="grid md:grid-cols-4 gap-3">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
@@ -1408,7 +1496,7 @@ function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDele
     const hasFilter = cfg.filters?.[col.key] && cfg.filters[col.key].value !== undefined && cfg.filters[col.key].value !== "";
     const isOpen = openColMenu === col.key;
     return (
-      <th className="py-3 px-3 text-left font-semibold text-xs text-slate-600 uppercase tracking-wide whitespace-nowrap">
+      <th className="py-3 px-3 text-left font-semibold text-xs text-slate-600 uppercase tracking-wide whitespace-nowrap border-b border-r border-slate-200">
         <div className="relative inline-block">
           <button onClick={(e) => { e.stopPropagation(); setOpenColMenu(isOpen ? null : col.key); setSubmenu(null); }}
             className={`flex items-center gap-1 hover:text-slate-900 ${hasFilter ? "text-blue-600" : ""}`}>
@@ -1612,6 +1700,7 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
   const [openColMenu, setOpenColMenu] = useState(null);
   const [submenu, setSubmenu] = useState(null); // 'sort' | 'type'
   const [addColModal, setAddColModal] = useState(null); // { position, anchorKey }
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const cfg = config || { customCols: [], hiddenCols: [], renamed: {}, typeOverrides: {}, order: [], groupBy: null, filters: {}, sortCol: "name", sortDir: "asc" };
   const setCfg = (patch) => onConfigChange({ ...cfg, ...(typeof patch === "function" ? patch(cfg) : patch) });
@@ -1620,6 +1709,13 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
 
   const toggleRow = (id) => setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
   const closeMenu = () => { setOpenColMenu(null); setSubmenu(null); };
+  const toggleSelected = (id) => setSelectedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+  const clearSelection = () => setSelectedIds(new Set());
 
   const handleSort = (key, dir) => { setCfg({ sortCol: key, sortDir: dir }); closeMenu(); };
 
@@ -1682,13 +1778,21 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
   const filteredIds = new Set(filtered.map((p) => p.id));
   const roots = filtered.filter((p) => !p.parentId || !filteredIds.has(p.parentId)).sort(sortFn);
   const activeFilters = Object.entries(cfg.filters || {}).filter(([_, v]) => v && v.value !== "" && v.value !== undefined && v.value !== null);
+  const completedCount = filtered.filter((project) => project.status === "Terminé").length;
+  const visibleTaskCount = filtered.reduce((sum, project) => sum + tasks.filter((task) => task.projectId === project.id).length, 0);
+  const selectedCount = selectedIds.size;
 
   // ===== Cell renderer =====
   const renderCell = (project, col) => {
     const v = valueFor(project, col);
     if (col.builtin && col.key === "name") return null; // handled in special name cell
-    if (col.builtin && col.key === "status") return <Badge className={badgeClass("status", project.status)}>{project.status}</Badge>;
-    if (col.builtin && col.key === "priority") return <Badge className={badgeClass("priority", project.priority)}>{project.priority}</Badge>;
+    if (col.builtin && col.key === "status") return <span className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold ${statusCellClass(project.status)}`}>{project.status}</span>;
+    if (col.builtin && col.key === "priority") return (
+      <span className="inline-flex items-center gap-2 text-slate-700">
+        <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClass(project.priority)}`} />
+        <span className="text-sm font-medium">{project.priority || "—"}</span>
+      </span>
+    );
     if (col.builtin && col.key === "computedTotalProgress") return (
       <div className="flex items-center gap-2 min-w-32">
         <div className="flex-1 h-2 rounded-full bg-slate-200 overflow-hidden">
@@ -1703,7 +1807,7 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
     }
     if (col.type === "case_a_cocher") return <span>{v ? "✓" : "—"}</span>;
     if (col.type === "financier" || col.type === "nombre" || col.type === "pourcentage") return <span className="text-slate-700">{formatCustomFieldValue(col.type, v)}</span>;
-    if (col.type === "statut" && v) return <Badge className={badgeClass("status", v)}>{v}</Badge>;
+    if (col.type === "statut" && v) return <span className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold ${statusCellClass(v)}`}>{v}</span>;
     return <span className="text-slate-600">{v || "—"}</span>;
   };
 
@@ -1847,28 +1951,38 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
     const rows = [];
 
     rows.push(
-      <tr key={project.id} className={`border-b hover:bg-slate-50 ${depth > 0 ? "bg-slate-50/30" : ""}`}>
-        <td className="py-3 px-3 text-slate-400 cursor-pointer" onClick={() => hasChildren && toggleRow(project.id)}>
+      <tr key={project.id} className={`group border-b border-slate-200 hover:bg-slate-50/80 ${depth > 0 ? "bg-slate-50/30" : "bg-white"}`}>
+        <td className="py-2.5 px-3 border-r border-slate-200">
+          <input
+            type="checkbox"
+            checked={selectedIds.has(project.id)}
+            onChange={() => toggleSelected(project.id)}
+            className="h-4 w-4 rounded border-slate-300 text-slate-900"
+            aria-label={`Sélectionner ${project.name}`}
+          />
+        </td>
+        <td className="py-2.5 px-2 text-slate-400 cursor-pointer border-r border-slate-200" onClick={() => hasChildren && toggleRow(project.id)}>
           {hasChildren ? (isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />) : <div className="w-4" />}
         </td>
         {nameCol && (
-          <td className="py-3 px-3 cursor-pointer" onClick={() => hasChildren && toggleRow(project.id)}>
-            <div style={{ paddingLeft: indentPx }}>
+          <td className="py-2.5 px-3 cursor-pointer min-w-[280px] border-r border-slate-200" onClick={() => hasChildren && toggleRow(project.id)}>
+            <div className="relative" style={{ paddingLeft: indentPx + 10 }}>
+              <span className={`absolute left-0 top-1 h-8 w-1 rounded-full ${project.status === "Terminé" ? "bg-emerald-500" : project.status === "En cours" ? "bg-blue-500" : project.status === "En attente" ? "bg-amber-400" : "bg-slate-300"}`} />
               <div className="flex items-center gap-2">
                 {depth > 0 && <span className="text-slate-300 text-xs">↳</span>}
                 <p className="font-semibold text-slate-900">{project.name}</p>
                 {childProjects.length > 0 && <span className="text-xs text-slate-400">({childProjects.length} sous-projet{childProjects.length > 1 ? "s" : ""})</span>}
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">{project.sportName}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{project.sportName || "Sport non renseigné"}</p>
             </div>
           </td>
         )}
-        {otherCols.map((col) => <td key={col.key} className="py-3 px-3">{renderCell(project, col)}</td>)}
+        {otherCols.map((col) => <td key={col.key} className="py-2.5 px-3 border-r border-slate-200 align-middle">{renderCell(project, col)}</td>)}
         {/* spacer for + col */}
-        <td />
+        <td className="border-r border-slate-200" />
         {/* Actions */}
-        <td className="py-3 px-3 sticky right-0 bg-white" onClick={(e) => e.stopPropagation()}>
-          <div className="flex gap-1.5 justify-end">
+        <td className="py-2.5 px-3 sticky right-0 bg-white/95 backdrop-blur border-l border-slate-200" onClick={(e) => e.stopPropagation()}>
+          <div className="flex gap-1.5 justify-end opacity-70 group-hover:opacity-100">
             <button onClick={() => onEdit(project)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600" title="Modifier"><Edit3 className="w-3.5 h-3.5" /></button>
             <button onClick={() => onQuickTask(project.id)} className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-700" title="Ajouter tâche"><Plus className="w-3.5 h-3.5" /></button>
             <button onClick={() => onNewSubProject(project)} className="p-1.5 rounded-lg hover:bg-violet-100 text-violet-700" title="Créer un sous-projet"><FolderKanban className="w-3.5 h-3.5" /></button>
@@ -1883,10 +1997,11 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
       projectTasks.forEach((task) => {
         const prog = normalizeTaskProgress(task.progress, task.status);
         rows.push(
-          <tr key={task.id} className="border-b bg-slate-50/60 text-sm">
-            <td />
+          <tr key={task.id} className="border-b border-slate-200 bg-slate-50/70 text-sm">
+            <td className="border-r border-slate-200" />
+            <td className="border-r border-slate-200" />
             {nameCol && (
-              <td className="py-2.5 px-3">
+              <td className="py-2.5 px-3 border-r border-slate-200">
                 <div style={{ paddingLeft: indentPx + 24 }}>
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${task.status === "Terminé" ? "text-green-500" : "text-slate-300"}`} />
@@ -1897,10 +2012,17 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
               </td>
             )}
             {otherCols.map((col) => {
-              if (col.key === "status") return <td key={col.key} className="py-2.5 px-3"><Badge className={`${badgeClass("status", task.status)} !text-xs`}>{task.status}</Badge></td>;
-              if (col.key === "priority") return <td key={col.key} className="py-2.5 px-3"><Badge className={`${badgeClass("priority", task.priority)} !text-xs`}>{task.priority}</Badge></td>;
+              if (col.key === "status") return <td key={col.key} className="py-2.5 px-3 border-r border-slate-200"><span className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold ${statusCellClass(task.status)}`}>{task.status}</span></td>;
+              if (col.key === "priority") return (
+                <td key={col.key} className="py-2.5 px-3 border-r border-slate-200">
+                  <span className="inline-flex items-center gap-2 text-slate-700">
+                    <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClass(task.priority)}`} />
+                    <span className="text-sm font-medium">{task.priority || "—"}</span>
+                  </span>
+                </td>
+              );
               if (col.key === "computedTotalProgress") return (
-                <td key={col.key} className="py-2.5 px-3 min-w-32">
+                <td key={col.key} className="py-2.5 px-3 min-w-32 border-r border-slate-200">
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
                       <div className={`h-full rounded-full ${progressTone(prog)}`} style={{ width: `${prog}%` }} />
@@ -1909,9 +2031,9 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
                   </div>
                 </td>
               );
-              return <td key={col.key} />;
+              return <td key={col.key} className="border-r border-slate-200" />;
             })}
-            <td /><td />
+            <td className="border-r border-slate-200" /><td />
           </tr>
         );
       });
@@ -1928,14 +2050,40 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <button
-          type="button"
-          onClick={() => setAddColModal({ position: "right", anchorKey: visibleCols[visibleCols.length - 1]?.key })}
-          className="inline-flex items-center gap-2 rounded-2xl border bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-        >
-          <Plus className="w-4 h-4" /> Ajouter une colonne
-        </button>
+      <div className="mb-3 rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-slate-900 text-white">
+              <FolderKanban className="w-4 h-4" />
+            </span>
+            <div>
+              <p className="text-sm font-bold text-slate-900">Plan de pilotage JAM</p>
+              <p className="text-xs text-slate-500">{filtered.length} projet{filtered.length > 1 ? "s" : ""} · {visibleTaskCount} tâche{visibleTaskCount > 1 ? "s" : ""} · {completedCount} terminé{completedCount > 1 ? "s" : ""}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedCount > 0 && (
+              <button onClick={clearSelection} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                {selectedCount} sélectionné{selectedCount > 1 ? "s" : ""}
+                <X className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setCfg({ hiddenCols: [] })}
+              className="inline-flex items-center gap-2 rounded-2xl border bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <EyeOff className="w-4 h-4" /> Afficher colonnes
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddColModal({ position: "right", anchorKey: visibleCols[visibleCols.length - 1]?.key })}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+            >
+              <Plus className="w-4 h-4" /> Ajouter colonne
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Active filter chips */}
@@ -1966,19 +2114,23 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border overflow-x-auto shadow-sm" onClick={() => openColMenu && closeMenu()}>
-        <table className="w-full text-sm min-w-[900px]">
-          <thead>
-            <tr className="border-b bg-slate-50">
-              <th className="w-8 py-3 px-3" />
+      <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm" onClick={() => openColMenu && closeMenu()}>
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[980px] border-separate border-spacing-0">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-slate-100/95 backdrop-blur">
+              <th className="w-10 py-3 px-3 border-b border-r border-slate-200">
+                <span className="block h-4 w-4 rounded border border-slate-300 bg-white" />
+              </th>
+              <th className="w-8 py-3 px-2 border-b border-r border-slate-200" />
               {visibleCols.map((col) => <ColHeader key={col.key} col={col} />)}
-              <th className="py-3 px-3 w-10">
+              <th className="py-3 px-3 w-10 border-b border-r border-slate-200">
                 <button onClick={(e) => { e.stopPropagation(); setAddColModal({ position: "right", anchorKey: visibleCols[visibleCols.length - 1]?.key }); }}
                   className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500" title="Ajouter une colonne">
                   <Plus className="w-4 h-4" />
                 </button>
               </th>
-              <th className="w-24" />
+              <th className="w-24 border-b border-slate-200" />
             </tr>
           </thead>
           <tbody>
@@ -1986,7 +2138,7 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
               <React.Fragment key={gk}>
                 {groupCol && (
                   <tr className="bg-violet-50/50 border-b">
-                    <td colSpan={visibleCols.length + 3} className="py-2 px-3 text-xs font-bold text-violet-700 uppercase tracking-wide">
+                    <td colSpan={visibleCols.length + 4} className="py-2 px-3 text-xs font-bold text-violet-700 uppercase tracking-wide">
                       {groupCol.label} : {gk}  <span className="text-slate-400">({groupedRoots[gk].length})</span>
                     </td>
                   </tr>
@@ -1996,6 +2148,7 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
             ))}
           </tbody>
         </table>
+        </div>
         {!roots.length && <p className="text-center text-slate-500 py-12">Aucun projet trouvé.</p>}
       </div>
 
@@ -2004,7 +2157,7 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
   );
 }
 
-function GuidedInputPanel({ open, onClose, allSports, projects, onSave }) {
+function GuidedInputPanel({ open, onClose, allSports, projects, sections = [], onSave }) {
   const [type, setType] = useState(null);
   const [form, setForm] = useState({});
 
@@ -2015,7 +2168,7 @@ function GuidedInputPanel({ open, onClose, allSports, projects, onSave }) {
     { id: "project", label: "Projet", Icon: FolderKanban, color: "bg-violet-100 text-violet-700" },
     { id: "task", label: "Tâche", Icon: ListChecks, color: "bg-blue-100 text-blue-700" },
     { id: "athlete", label: "Athlète", Icon: Users, color: "bg-green-100 text-green-700" },
-    { id: "club", label: "Club", Icon: Building2, color: "bg-amber-100 text-amber-700" },
+    { id: "club", label: "Section", Icon: Building2, color: "bg-amber-100 text-amber-700" },
   ];
 
   const handleSave = () => {
@@ -2131,13 +2284,27 @@ function GuidedInputPanel({ open, onClose, allSports, projects, onSave }) {
             <GuidedField label="Nom complet *">
               <input autoFocus className={inp} placeholder="Prénom Nom" value={form.name || ""} onChange={(e) => ff("name", e.target.value)} />
             </GuidedField>
-            <GuidedField label="Sport">
-              <select className={inp} value={form.sport || ""} onChange={(e) => ff("sport", e.target.value)}>
-                {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            <GuidedField label="Section">
+              <select
+                className={inp}
+                value={form.sectionId || ""}
+                onChange={(e) => {
+                  const section = sections.find((item) => item.id === e.target.value);
+                  setForm((prev) => ({ ...prev, sectionId: e.target.value, subSection: "", sport: section?.sport || prev.sport }));
+                }}
+              >
+                <option value="">Section JAM</option>
+                {sections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
               </select>
             </GuidedField>
-            <GuidedField label="Catégorie">
-              <input className={inp} placeholder="-88 kg, U13…" value={form.category || ""} onChange={(e) => ff("category", e.target.value)} />
+            <GuidedField label="Sous-section">
+              <select className={inp} value={form.subSection || ""} onChange={(e) => ff("subSection", e.target.value)} disabled={!form.sectionId}>
+                <option value="">Sous-section</option>
+                {(sections.find((section) => section.id === form.sectionId)?.subSections || []).map((sub) => <option key={sub} value={sub}>{sub}</option>)}
+              </select>
+            </GuidedField>
+            <GuidedField label="Profil">
+              <StatusToggle options={ATHLETE_PROFILE_OPTIONS} value={form.category} onChange={(v) => ff("category", v)} />
             </GuidedField>
             <GuidedField label="Statut">
               <StatusToggle options={ATHLETE_STATUS} value={form.status} onChange={(v) => ff("status", v)} />
@@ -2151,22 +2318,20 @@ function GuidedInputPanel({ open, onClose, allSports, projects, onSave }) {
           </>}
 
           {type === "club" && <>
-            <GuidedField label="Nom du club *">
-              <input autoFocus className={inp} placeholder="ex : Club Athlétisme Paris" value={form.name || ""} onChange={(e) => ff("name", e.target.value)} />
+            <GuidedField label="Nom de la section *">
+              <input autoFocus className={inp} placeholder="ex : Football" value={form.name || ""} onChange={(e) => ff("name", e.target.value)} />
             </GuidedField>
-            <GuidedField label="Sport">
-              <select className={inp} value={form.sport || ""} onChange={(e) => ff("sport", e.target.value)}>
-                {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </GuidedField>
-            <GuidedField label="Ville">
-              <input className={inp} placeholder="Ville" value={form.city || ""} onChange={(e) => ff("city", e.target.value)} />
+            <GuidedField label="Lieu / ville">
+              <input className={inp} placeholder="Montrouge" value={form.city || ""} onChange={(e) => ff("city", e.target.value)} />
             </GuidedField>
             <GuidedField label="Statut">
               <StatusToggle options={CLUB_STATUS} value={form.status} onChange={(v) => ff("status", v)} />
             </GuidedField>
-            <GuidedField label="Contact">
+            <GuidedField label="Responsable">
               <input className={inp} placeholder="Nom du responsable" value={form.contactName || ""} onChange={(e) => ff("contactName", e.target.value)} />
+            </GuidedField>
+            <GuidedField label="Sous-sections">
+              <input className={inp} placeholder="U7, U9, U11…" value={form.subSectionsText || ""} onChange={(e) => ff("subSectionsText", e.target.value)} />
             </GuidedField>
             <GuidedField label="Email">
               <input type="email" className={inp} value={form.email || ""} onChange={(e) => ff("email", e.target.value)} />
@@ -2271,16 +2436,31 @@ export default function JamSaaSApp() {
   const [guidedOpen, setGuidedOpen] = useState(false);
   const [wsModal, setWsModal] = useState(false);
   const [wsForm, setWsForm] = useState({});
+  const [dashboardEditMode, setDashboardEditMode] = useState(false);
+  const [dashboardWidgetModal, setDashboardWidgetModal] = useState({ open: false, item: null });
+  const [dashboardWidgetForm, setDashboardWidgetForm] = useState({});
+  const [dashboardDrilldown, setDashboardDrilldown] = useState(null);
+  const [dashboardDataSearch, setDashboardDataSearch] = useState("");
+  const [dashboardDataSort, setDashboardDataSort] = useState("name");
 
   // Form state
   const [form, setForm] = useState({});
   const [newSportName, setNewSportName] = useState("");
   const [globalColumnModal, setGlobalColumnModal] = useState(null);
   const [importPreview, setImportPreview] = useState(null);
+  const [importScope, setImportScope] = useState("all");
+  const importScopeRef = useRef("all");
   const importInputRef = useRef(null);
 
   const allSports = useMemo(() => [...BASE_SPORTS, ...data.customSports], [data.customSports]);
   const sportName = (id) => allSports.find((s) => s.id === id)?.name || id;
+  const splitSubSections = (value) => String(value || "")
+    .split(/\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const sectionName = (id) => wsClubs.find((section) => section.id === id)?.name || "";
+  const subSectionsFor = (sectionId) => wsClubs.find((section) => section.id === sectionId)?.subSections || [];
+  const sectionAthleteCount = (sectionId) => wsAthletes.filter((athlete) => athlete.sectionId === sectionId).length;
 
   useEffect(() => { saveData(data); }, [data]);
 
@@ -2325,6 +2505,24 @@ export default function JamSaaSApp() {
     setSearchQ(""); setFilterSport("all"); setFilterStatus("all");
     setFilterPriority("all"); setDocMode("all");
   };
+  const goToView = (nextView) => {
+    setView(nextView);
+    if (nextView !== "dashboardData") setDashboardDrilldown(null);
+    resetFilters();
+  };
+  const fileActions = (scope, label) => (
+    <>
+      <button onClick={() => downloadImportTemplate(scope)} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
+        <FileSpreadsheet className="w-4 h-4" /> Gabarit
+      </button>
+      <button onClick={() => triggerImport(scope)} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
+        <Upload className="w-4 h-4" /> Importer {label}
+      </button>
+      <button onClick={() => exportExcel(scope)} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
+        <Download className="w-4 h-4" /> Exporter
+      </button>
+    </>
+  );
 
   // Handlers
   const handleQuickTask = (projectId) => {
@@ -2335,6 +2533,11 @@ export default function JamSaaSApp() {
   const handleEditProject = (item) => {
     setForm({ ...item });
     setProjectModal({ open: true, item });
+  };
+
+  const handleEditSection = (section) => {
+    setForm({ ...section, subSectionsText: (section.subSections || []).join("\n") });
+    setClubModal({ open: true, item: section });
   };
 
   const requestDelete = (type, item) => setDeleteConfirm({ open: true, type, item });
@@ -2362,13 +2565,22 @@ export default function JamSaaSApp() {
   };
 
   const saveAthlete = () => {
-    const item = { workspaceId: currentWsId, ...form, id: form.id || uid(), customFieldValues: form.customFieldValues || {} };
+    const section = wsClubs.find((item) => item.id === form.sectionId);
+    const item = { workspaceId: currentWsId, ...form, sport: section?.sport || form.sport || "", id: form.id || uid(), customFieldValues: form.customFieldValues || {} };
     upd("athletes", (arr) => form.id ? arr.map((a) => a.id === form.id ? item : a) : [...arr, item]);
     setAthleteModal({ open: false, item: null }); setForm({});
   };
 
   const saveClub = () => {
-    const item = { workspaceId: currentWsId, ...form, id: form.id || uid(), customFieldValues: form.customFieldValues || {} };
+    const item = {
+      workspaceId: currentWsId,
+      ...form,
+      id: form.id || uid(),
+      sport: allSports.find((sport) => normalizeKey(sport.name) === normalizeKey(form.name))?.id || form.sport || "",
+      subSections: splitSubSections(form.subSectionsText ?? (form.subSections || []).join("\n")),
+      customFieldValues: form.customFieldValues || {},
+    };
+    delete item.subSectionsText;
     upd("clubs", (arr) => form.id ? arr.map((c) => c.id === form.id ? item : c) : [...arr, item]);
     setClubModal({ open: false, item: null }); setForm({});
   };
@@ -2431,7 +2643,17 @@ export default function JamSaaSApp() {
       upd("tasks", (arr) => [...arr, item]);
     }
     if (type === "athlete") upd("athletes", (arr) => [...arr, { workspaceId: currentWsId, ...guidedForm, id: uid() }]);
-    if (type === "club") upd("clubs", (arr) => [...arr, { workspaceId: currentWsId, ...guidedForm, id: uid() }]);
+    if (type === "club") upd("clubs", (arr) => {
+      const item = {
+        workspaceId: currentWsId,
+        ...guidedForm,
+        id: uid(),
+        sport: allSports.find((sport) => normalizeKey(sport.name) === normalizeKey(guidedForm.name))?.id || guidedForm.sport || "",
+        subSections: splitSubSections(guidedForm.subSectionsText),
+      };
+      delete item.subSectionsText;
+      return [...arr, item];
+    });
   };
 
   const updateProjectStatus = (id, status) => {
@@ -2560,210 +2782,273 @@ export default function JamSaaSApp() {
   const rowProjectName = (row) => firstValue(row, ["Nom", "Projet", "Nom du projet", "Project"]);
   const rowTaskTitle = (row) => firstValue(row, ["Titre", "Tâche", "Tache", "Nom de la tâche", "Task"]);
   const rowAthleteName = (row) => firstValue(row, ["Nom", "Athlète", "Athlete", "Nom complet", "Sportif"]);
+  const rowSectionName = (row) => firstValue(row, ["Section", "Nom de la section", "Section *"]);
 
-  const downloadImportTemplate = async () => {
+  const downloadImportTemplate = async (scope = "all") => {
     const wb = new ExcelJS.Workbook();
     wb.creator = "JAM SaaS";
     wb.created = new Date();
     wb.modified = new Date();
 
+    const include = (entity) => scope === "all" || scope === entity;
     const sportsList = allSports.map((sport) => sport.name);
+    const sectionsList = wsClubs.map((section) => section.name);
     const projectCustomExample = Object.fromEntries(projectCustomFields.map((field) => [field.name, field.type === "financier" ? 2500 : ""]));
     const taskCustomExample = Object.fromEntries(taskCustomFields.map((field) => [field.name, ""]));
     const athleteCustomExample = Object.fromEntries(athleteCustomFields.map((field) => [field.name, ""]));
+    const sectionCustomExample = Object.fromEntries(clubCustomFields.map((field) => [field.name, ""]));
 
-    const athleteSheet = appendSheet(wb, "Athlètes", [
-      {
-        "Nom complet *": "Prénom Nom",
-        Sport: "Développé couché",
-        Catégorie: "-88 kg",
-        Statut: "Actif",
-        Coach: "Coach référent",
-        Email: "prenom.nom@example.com",
-        Téléphone: "0600000000",
-        Notes: "Ligne exemple à remplacer",
-        ...athleteCustomExample,
-      },
-    ]);
-    applyImportSheetFormat(athleteSheet, {
-      required: ["Nom complet *"],
-      rows: 1200,
-      color: "15803D",
-      widths: {
-        "Nom complet *": 28,
-        Sport: 24,
-        Catégorie: 18,
-        Statut: 18,
-        Coach: 24,
-        Email: 30,
-        Téléphone: 18,
-        Notes: 42,
-      },
-      listValidations: {
-        Sport: sportsList,
-        Statut: ATHLETE_STATUS,
-      },
-    });
+    if (include("projects")) {
+      const projectSheet = appendSheet(wb, "Projets", [
+        {
+          "Nom du projet *": "Stage régional 2026",
+          Description: "Préparation et organisation du stage",
+          Responsable: "Samy",
+          Sport: "Développé couché",
+          Statut: "À faire",
+          Priorité: "Moyenne",
+          "Date début": "2026-06-01",
+          "Date fin": "2026-06-03",
+          "Projet parent": "",
+          ...projectCustomExample,
+        },
+      ]);
+      applyImportSheetFormat(projectSheet, {
+        required: ["Nom du projet *"],
+        rows: 500,
+        color: "4338CA",
+        widths: {
+          "Nom du projet *": 30,
+          Description: 42,
+          Responsable: 22,
+          Sport: 24,
+          Statut: 18,
+          Priorité: 16,
+          "Date début": 16,
+          "Date fin": 16,
+          "Projet parent": 28,
+        },
+        listValidations: {
+          Sport: sportsList,
+          Statut: STATUS_OPTIONS,
+          Priorité: PRIORITY_OPTIONS,
+        },
+        dateHeaders: ["Date début", "Date fin"],
+      });
+    }
 
-    const projectSheet = appendSheet(wb, "Projets", [
-      {
-        "Nom du projet *": "Stage régional 2026",
-        Description: "Préparation et organisation du stage",
-        Responsable: "Samy",
-        Sport: "Développé couché",
-        Statut: "À faire",
-        Priorité: "Moyenne",
-        "Date début": "2026-06-01",
-        "Date fin": "2026-06-03",
-        "Projet parent": "",
-        ...projectCustomExample,
-      },
-    ]);
-    applyImportSheetFormat(projectSheet, {
-      required: ["Nom du projet *"],
-      rows: 500,
-      color: "4338CA",
-      widths: {
-        "Nom du projet *": 30,
-        Description: 42,
-        Responsable: 22,
-        Sport: 24,
-        Statut: 18,
-        Priorité: 16,
-        "Date début": 16,
-        "Date fin": 16,
-        "Projet parent": 28,
-      },
-      listValidations: {
-        Sport: sportsList,
-        Statut: STATUS_OPTIONS,
-        Priorité: PRIORITY_OPTIONS,
-      },
-      dateHeaders: ["Date début", "Date fin"],
-    });
+    if (include("tasks")) {
+      const taskSheet = appendSheet(wb, "Tâches", [
+        {
+          "Titre *": "Réserver la salle",
+          Description: "Confirmer le créneau auprès de la section",
+          "Projet associé": "Stage régional 2026",
+          "Assigné à": "Samy",
+          Statut: "À faire",
+          Priorité: "Haute",
+          Progression: 0,
+          "Date début": "2026-05-20",
+          Échéance: "2026-05-25",
+          ...taskCustomExample,
+        },
+      ]);
+      applyImportSheetFormat(taskSheet, {
+        required: ["Titre *"],
+        rows: 1800,
+        color: "0369A1",
+        widths: {
+          "Titre *": 32,
+          Description: 42,
+          "Projet associé": 30,
+          "Assigné à": 24,
+          Statut: 18,
+          Priorité: 16,
+          Progression: 16,
+          "Date début": 16,
+          Échéance: 16,
+        },
+        listValidations: {
+          Statut: STATUS_OPTIONS,
+          Priorité: PRIORITY_OPTIONS,
+        },
+        dateHeaders: ["Date début", "Échéance"],
+        numericHeaders: ["Progression"],
+      });
+    }
 
-    const taskSheet = appendSheet(wb, "Tâches", [
-      {
-        "Titre *": "Réserver la salle",
-        Description: "Confirmer le créneau auprès du club",
-        "Projet associé": "Stage régional 2026",
-        "Assigné à": "Samy",
-        Statut: "À faire",
-        Priorité: "Haute",
-        Progression: 0,
-        "Date début": "2026-05-20",
-        Échéance: "2026-05-25",
-        ...taskCustomExample,
-      },
-    ]);
-    applyImportSheetFormat(taskSheet, {
-      required: ["Titre *"],
-      rows: 1800,
-      color: "0369A1",
-      widths: {
-        "Titre *": 32,
-        Description: 42,
-        "Projet associé": 30,
-        "Assigné à": 24,
-        Statut: 18,
-        Priorité: 16,
-        Progression: 16,
-        "Date début": 16,
-        Échéance: 16,
-      },
-      listValidations: {
-        Statut: STATUS_OPTIONS,
-        Priorité: PRIORITY_OPTIONS,
-      },
-      dateHeaders: ["Date début", "Échéance"],
-      numericHeaders: ["Progression"],
-    });
+    if (include("clubs")) {
+      const sectionSheet = appendSheet(wb, "Sections", [
+        {
+          "Section *": "Football",
+          Ville: "Montrouge",
+          Responsable: "Responsable section",
+          "Sous-sections": "U7, U9, U11, U13, U15",
+          Statut: "Inscrit",
+          Email: "section@example.com",
+          Téléphone: "0100000000",
+          Notes: "Une sous-section par virgule ou par ligne.",
+          ...sectionCustomExample,
+        },
+      ]);
+      applyImportSheetFormat(sectionSheet, {
+        required: ["Section *"],
+        rows: 200,
+        color: "7C3AED",
+        widths: {
+          "Section *": 26,
+          Ville: 22,
+          Responsable: 26,
+          "Sous-sections": 42,
+          Statut: 18,
+          Email: 30,
+          Téléphone: 18,
+          Notes: 42,
+        },
+        listValidations: {
+          Statut: CLUB_STATUS,
+        },
+      });
+    }
+
+    if (include("athletes")) {
+      const athleteSheet = appendSheet(wb, "Athlètes", [
+        {
+          "Nom complet *": "Prénom Nom",
+          Section: "Développé couché",
+          "Sous-section": "-88 kg",
+          Profil: "Homme",
+          Statut: "Actif",
+          Coach: "Coach référent",
+          Email: "prenom.nom@example.com",
+          Téléphone: "0600000000",
+          Notes: "Ligne exemple à remplacer",
+          ...athleteCustomExample,
+        },
+      ]);
+      applyImportSheetFormat(athleteSheet, {
+        required: ["Nom complet *"],
+        rows: 1200,
+        color: "15803D",
+        widths: {
+          "Nom complet *": 28,
+          Section: 24,
+          "Sous-section": 20,
+          Profil: 16,
+          Statut: 18,
+          Coach: 24,
+          Email: 30,
+          Téléphone: 18,
+          Notes: 42,
+        },
+        listValidations: {
+          Section: sectionsList,
+          Profil: ATHLETE_PROFILE_OPTIONS,
+          Statut: ATHLETE_STATUS,
+        },
+      });
+    }
 
     const guideSheet = appendSheet(wb, "Mode emploi", [
-      { Étape: "1", Onglet: "Athlètes", À_faire: "Colle ou saisis tes 1080 sportifs à partir de la ligne 2. La colonne Nom complet est obligatoire.", Important: "Ligne 2 est un exemple, remplace-la." },
-      { Étape: "2", Onglet: "Projets", À_faire: "Ajoute les projets à créer ou mettre à jour. Le nom du projet est obligatoire.", Important: "Projet parent doit correspondre exactement à un autre nom de projet." },
-      { Étape: "3", Onglet: "Tâches", À_faire: "Ajoute les tâches et renseigne Projet associé avec le nom exact du projet.", Important: "Progression doit être entre 0 et 100." },
-      { Étape: "4", Onglet: "Import", À_faire: "Dans JAM SaaS, clique Importer Excel et sélectionne ce fichier.", Important: "Les lignes vides sont ignorées." },
+      { Étape: "1", Onglet: "Projets", À_faire: "Ajoute ou mets à jour les projets. Le nom du projet est obligatoire.", Important: "Projet parent doit correspondre exactement à un autre nom de projet." },
+      { Étape: "2", Onglet: "Tâches", À_faire: "Ajoute les tâches et renseigne Projet associé avec le nom exact du projet.", Important: "Progression doit être entre 0 et 100." },
+      { Étape: "3", Onglet: "Sections", À_faire: "Ajoute les sections sportives et leurs sous-sections.", Important: "Sépare les sous-sections par virgule ou retour ligne." },
+      { Étape: "4", Onglet: "Athlètes", À_faire: "Colle ou saisis tes sportifs. La colonne Nom complet est obligatoire.", Important: "Section doit correspondre exactement à une section existante ou importée." },
     ]);
     applyGuideSheetFormat(guideSheet);
 
     wb.views = [{ activeTab: 0 }];
-    await downloadWorkbook(wb, "gabarit-import-jam-saas.xlsx");
+    const names = { projects: "projets", tasks: "taches", clubs: "sections", athletes: "athletes", all: "global" };
+    await downloadWorkbook(wb, `gabarit-import-jam-saas-${names[scope] || "global"}.xlsx`);
   };
 
-  const exportExcel = async () => {
+  const exportExcel = async (scope = "all") => {
     const wb = new ExcelJS.Workbook();
     wb.creator = "JAM SaaS";
-    appendSheet(wb, "Tableau de bord", [
-      { Indicateur: "Projets", Valeur: wsProjects.length },
-      { Indicateur: "Tâches", Valeur: wsTasks.length },
-      { Indicateur: "Athlètes", Valeur: wsAthletes.length },
-      { Indicateur: "Clubs", Valeur: wsClubs.length },
-      { Indicateur: "Budget total", Valeur: totalBudget },
-    ]);
-    appendSheet(wb, "Projets", wsProjects.map((project) => ({
-      "Nom du projet": project.name,
-      Description: project.description || "",
-      Responsable: project.owner || "",
-      Sport: sportName(project.sport),
-      Statut: project.status || "",
-      Priorité: project.priority || "",
-      "Date début": project.startDate || "",
-      "Date fin": project.endDate || "",
-      "Projet parent": wsProjects.find((parent) => parent.id === project.parentId)?.name || "",
-      ...Object.fromEntries(projectCustomFields.map((field) => [field.name, project.customFieldValues?.[field.id] ?? ""])),
-    })));
-    appendSheet(wb, "Tâches", wsTasks.map((task) => ({
-      Titre: task.title,
-      Description: task.description || "",
-      "Projet associé": wsProjects.find((project) => project.id === task.projectId)?.name || "",
-      "Assigné à": task.assignee || "",
-      Statut: task.status || "",
-      Priorité: task.priority || "",
-      Progression: normalizeTaskProgress(task.progress, task.status),
-      "Date début": task.startDate || "",
-      Échéance: task.endDate || "",
-      ...Object.fromEntries(taskCustomFields.map((field) => [field.name, task.customFieldValues?.[field.id] ?? ""])),
-    })));
-    appendSheet(wb, "Athlètes", wsAthletes.map((athlete) => ({
-      "Nom complet": athlete.name,
-      Sport: sportName(athlete.sport),
-      Catégorie: athlete.category || "",
-      Statut: athlete.status || "",
-      Coach: athlete.coach || "",
-      Email: athlete.email || "",
-      Téléphone: athlete.phone || "",
-      Notes: athlete.notes || "",
-      ...Object.fromEntries(athleteCustomFields.map((field) => [field.name, athlete.customFieldValues?.[field.id] ?? ""])),
-    })));
-    appendSheet(wb, "Clubs", wsClubs.map((club) => ({
-      Club: club.name,
-      Sport: sportName(club.sport),
-      Ville: club.city || "",
-      Contact: club.contactName || "",
-      Statut: club.status || "",
-      Email: club.email || "",
-      Téléphone: club.phone || "",
-      Délégation: club.delegationSize || "",
-      Notes: club.notes || "",
-      ...Object.fromEntries(clubCustomFields.map((field) => [field.name, club.customFieldValues?.[field.id] ?? ""])),
-    })));
-    appendSheet(wb, "Documents", wsDocs.map((doc) => ({
-      Titre: doc.title,
-      Sport: sportName(doc.sport),
-      Type: doc.type || "",
-      Statut: doc.status || "",
-      URL: doc.url || "",
-      Notes: doc.notes || "",
-      ...Object.fromEntries(documentCustomFields.map((field) => [field.name, doc.customFieldValues?.[field.id] ?? ""])),
-    })));
-    appendSheet(wb, "Convocations", wsConvocations.map((conv) => ({ Titre: conv.title, Sport: sportName(conv.sport), Type: conv.type || "", Date: conv.date || "", Heure: conv.time || "", Lieu: conv.location || "", Statut: conv.status || "" })));
-    appendSheet(wb, "Notifications", wsNotifications.map((notif) => ({ Titre: notif.title, Sport: sportName(notif.sport), Type: notif.type || "", Statut: notif.status || "", "Date envoi": notif.sentAt || "", Message: notif.message || "" })));
-    await downloadWorkbook(wb, "export-jam-saas.xlsx");
+    const include = (entity) => scope === "all" || scope === entity;
+    if (scope === "all") {
+      appendSheet(wb, "Tableau de bord", [
+        { Indicateur: "Projets", Valeur: wsProjects.length },
+        { Indicateur: "Tâches", Valeur: wsTasks.length },
+        { Indicateur: "Athlètes", Valeur: wsAthletes.length },
+        { Indicateur: "Sections", Valeur: wsClubs.length },
+        { Indicateur: "Budget total", Valeur: totalBudget },
+      ]);
+    }
+    if (include("projects")) {
+      appendSheet(wb, "Projets", wsProjects.map((project) => ({
+        "Nom du projet": project.name,
+        Description: project.description || "",
+        Responsable: project.owner || "",
+        Sport: sportName(project.sport),
+        Statut: project.status || "",
+        Priorité: project.priority || "",
+        "Date début": project.startDate || "",
+        "Date fin": project.endDate || "",
+        "Projet parent": wsProjects.find((parent) => parent.id === project.parentId)?.name || "",
+        ...Object.fromEntries(projectCustomFields.map((field) => [field.name, project.customFieldValues?.[field.id] ?? ""])),
+      })));
+    }
+    if (include("tasks")) {
+      appendSheet(wb, "Tâches", wsTasks.map((task) => ({
+        Titre: task.title,
+        Description: task.description || "",
+        "Projet associé": wsProjects.find((project) => project.id === task.projectId)?.name || "",
+        "Assigné à": task.assignee || "",
+        Statut: task.status || "",
+        Priorité: task.priority || "",
+        Progression: normalizeTaskProgress(task.progress, task.status),
+        "Date début": task.startDate || "",
+        Échéance: task.endDate || "",
+        ...Object.fromEntries(taskCustomFields.map((field) => [field.name, task.customFieldValues?.[field.id] ?? ""])),
+      })));
+    }
+    if (include("clubs")) {
+      appendSheet(wb, "Sections", wsClubs.map((club) => ({
+        Section: club.name,
+        Ville: club.city || "",
+        Responsable: club.contactName || "",
+        "Sous-sections": (club.subSections || []).join(", "),
+        Statut: club.status || "",
+        Email: club.email || "",
+        Téléphone: club.phone || "",
+        Athlètes: sectionAthleteCount(club.id),
+        Notes: club.notes || "",
+        ...Object.fromEntries(clubCustomFields.map((field) => [field.name, club.customFieldValues?.[field.id] ?? ""])),
+      })));
+    }
+    if (include("athletes")) {
+      appendSheet(wb, "Athlètes", wsAthletes.map((athlete) => ({
+        "Nom complet": athlete.name,
+        Section: sectionName(athlete.sectionId),
+        "Sous-section": athlete.subSection || "",
+        Profil: athlete.category || "",
+        Statut: athlete.status || "",
+        Coach: athlete.coach || "",
+        Email: athlete.email || "",
+        Téléphone: athlete.phone || "",
+        Notes: athlete.notes || "",
+        ...Object.fromEntries(athleteCustomFields.map((field) => [field.name, athlete.customFieldValues?.[field.id] ?? ""])),
+      })));
+    }
+    if (scope === "all") {
+      appendSheet(wb, "Documents", wsDocs.map((doc) => ({
+        Titre: doc.title,
+        Sport: sportName(doc.sport),
+        Type: doc.type || "",
+        Statut: doc.status || "",
+        URL: doc.url || "",
+        Notes: doc.notes || "",
+        ...Object.fromEntries(documentCustomFields.map((field) => [field.name, doc.customFieldValues?.[field.id] ?? ""])),
+      })));
+      appendSheet(wb, "Convocations", wsConvocations.map((conv) => ({ Titre: conv.title, Sport: sportName(conv.sport), Type: conv.type || "", Date: conv.date || "", Heure: conv.time || "", Lieu: conv.location || "", Statut: conv.status || "" })));
+      appendSheet(wb, "Notifications", wsNotifications.map((notif) => ({ Titre: notif.title, Sport: sportName(notif.sport), Type: notif.type || "", Statut: notif.status || "", "Date envoi": notif.sentAt || "", Message: notif.message || "" })));
+    }
+    const names = { projects: "projets", tasks: "taches", clubs: "sections", athletes: "athletes", all: "global" };
+    await downloadWorkbook(wb, `export-jam-saas-${names[scope] || "global"}.xlsx`);
   };
 
-  const applyImportRows = ({ projectRows = [], taskRows = [], athleteRows = [] }) => {
-    const counts = { projects: 0, tasks: 0, athletes: 0 };
+  const applyImportRows = ({ projectRows = [], taskRows = [], sectionRows = [], athleteRows = [] }) => {
+    const counts = { projects: 0, tasks: 0, sections: 0, athletes: 0 };
 
     setData((prev) => {
       const discoveredSports = new Map();
@@ -2810,6 +3095,35 @@ export default function JamSaaSApp() {
         if (index >= 0) nextProjects[index] = { ...nextProjects[index], parentId: parent.id };
       });
 
+      const nextClubs = [...prev.clubs];
+      const sectionByName = new Map(nextClubs.filter((section) => section.workspaceId === currentWsId).map((section) => [normalizeKey(section.name), section]));
+      sectionRows.forEach((row) => {
+        const name = rowSectionName(row);
+        if (!name) return;
+        const existing = sectionByName.get(normalizeKey(name));
+        const subSectionsRaw = firstValue(row, ["Sous-sections", "Sous sections", "Sous-section", "Categories", "Catégories"]);
+        const section = {
+          ...(existing || {}),
+          id: existing?.id || uid(),
+          workspaceId: currentWsId,
+          name,
+          sport: existing?.sport || resolveSportId(name, sports, discoveredSports) || "developpe_couche",
+          city: firstValue(row, ["Ville", "Lieu", "City"]) || existing?.city || "",
+          contactName: firstValue(row, ["Responsable", "Contact", "Référent", "Referent"]) || existing?.contactName || "",
+          subSections: subSectionsRaw ? splitSubSections(subSectionsRaw) : existing?.subSections || [],
+          status: firstValue(row, ["Statut", "Status"]) || existing?.status || "À contacter",
+          email: firstValue(row, ["Email", "E-mail", "Mail"]) || existing?.email || "",
+          phone: firstValue(row, ["Téléphone", "Telephone", "Tel", "Phone"]) || existing?.phone || "",
+          notes: firstValue(row, ["Notes", "Note"]) || existing?.notes || "",
+          customFieldValues: { ...(existing?.customFieldValues || {}), ...customFieldValuesFromRow(row, clubCustomFields) },
+        };
+        sectionByName.set(normalizeKey(name), section);
+        const index = nextClubs.findIndex((item) => item.id === section.id);
+        if (index >= 0) nextClubs[index] = section;
+        else nextClubs.push(section);
+        counts.sections += 1;
+      });
+
       const nextTasks = [...prev.tasks];
       taskRows.forEach((row) => {
         const title = rowTaskTitle(row);
@@ -2848,7 +3162,9 @@ export default function JamSaaSApp() {
         const name = rowAthleteName(row);
         if (!name) return;
         const email = firstValue(row, ["Email", "E-mail", "Mail"]);
-        const sport = resolveSportId(firstValue(row, ["Sport"]), sports, discoveredSports) || "developpe_couche";
+        const sectionLabel = firstValue(row, ["Section"]);
+        const section = sectionByName.get(normalizeKey(sectionLabel));
+        const sport = section?.sport || resolveSportId(firstValue(row, ["Sport"]), sports, discoveredSports) || "developpe_couche";
         const existing = nextAthletes.find((athlete) => athlete.workspaceId === currentWsId && ((email && normalizeKey(athlete.email) === normalizeKey(email)) || (!email && normalizeKey(athlete.name) === normalizeKey(name) && athlete.sport === sport)));
         const athlete = {
           ...(existing || {}),
@@ -2856,7 +3172,9 @@ export default function JamSaaSApp() {
           workspaceId: currentWsId,
           name,
           sport,
-          category: firstValue(row, ["Catégorie", "Categorie", "Cat"]) || existing?.category || "",
+          sectionId: section?.id || existing?.sectionId || "",
+          subSection: firstValue(row, ["Sous-section", "Sous section", "Subsection"]) || existing?.subSection || "",
+          category: firstValue(row, ["Profil", "Genre", "Sexe", "Catégorie", "Categorie", "Cat"]) || existing?.category || "",
           status: firstValue(row, ["Statut", "Status"]) || existing?.status || "Actif",
           coach: firstValue(row, ["Coach", "Entraîneur", "Entraineur"]) || existing?.coach || "",
           email: email || existing?.email || "",
@@ -2876,20 +3194,25 @@ export default function JamSaaSApp() {
         ...Array.from(discoveredSports.values()).filter((sport) => !existingSportIds.has(sport.id) && !BASE_SPORTS.some((base) => base.id === sport.id)),
       ];
 
-      return { ...prev, projects: nextProjects, tasks: nextTasks, athletes: nextAthletes, customSports };
+      return { ...prev, projects: nextProjects, tasks: nextTasks, clubs: nextClubs, athletes: nextAthletes, customSports };
     });
 
     return counts;
   };
 
-  const buildImportWarnings = ({ projectRows, taskRows, athleteRows }) => {
+  const buildImportWarnings = ({ projectRows, taskRows, sectionRows, athleteRows }) => {
     const warnings = [];
     const missingProjects = projectRows.filter((row) => !rowProjectName(row)).length;
     const missingTasks = taskRows.filter((row) => !rowTaskTitle(row)).length;
+    const missingSections = sectionRows.filter((row) => !rowSectionName(row)).length;
     const missingAthletes = athleteRows.filter((row) => !rowAthleteName(row)).length;
     const projectNames = new Set([
       ...wsProjects.map((project) => project.name),
       ...projectRows.map((row) => rowProjectName(row)),
+    ].filter(Boolean).map(normalizeKey));
+    const sectionNames = new Set([
+      ...wsClubs.map((section) => section.name),
+      ...sectionRows.map((row) => rowSectionName(row)),
     ].filter(Boolean).map(normalizeKey));
     const unknownTaskProjects = taskRows.filter((row) => {
       const projectName = firstValue(row, ["Projet associé", "Projet associe", "Projet", "Project"]);
@@ -2899,15 +3222,27 @@ export default function JamSaaSApp() {
       const parentName = firstValue(row, ["Projet parent", "Parent", "Projet principal"]);
       return parentName && !projectNames.has(normalizeKey(parentName));
     }).length;
+    const unknownAthleteSections = athleteRows.filter((row) => {
+      const sectionNameValue = firstValue(row, ["Section"]);
+      return sectionNameValue && !sectionNames.has(normalizeKey(sectionNameValue));
+    }).length;
 
     if (missingAthletes) warnings.push(`${missingAthletes} ligne(s) Athlètes sans nom complet seront ignorées.`);
     if (missingProjects) warnings.push(`${missingProjects} ligne(s) Projets sans nom de projet seront ignorées.`);
     if (missingTasks) warnings.push(`${missingTasks} ligne(s) Tâches sans titre seront ignorées.`);
+    if (missingSections) warnings.push(`${missingSections} ligne(s) Sections sans nom de section seront ignorées.`);
     if (unknownTaskProjects) warnings.push(`${unknownTaskProjects} tâche(s) indiquent un projet associé introuvable. Elles seront importées sans rattachement.`);
     if (unknownParents) warnings.push(`${unknownParents} sous-projet(s) indiquent un projet parent introuvable. Ils resteront au niveau principal.`);
-    if (!projectRows.length && !taskRows.length && !athleteRows.length) warnings.push("Aucune ligne exploitable détectée dans les onglets Projets, Tâches ou Athlètes.");
+    if (unknownAthleteSections) warnings.push(`${unknownAthleteSections} athlète(s) indiquent une section introuvable. Ils seront importés sans rattachement.`);
+    if (!projectRows.length && !taskRows.length && !sectionRows.length && !athleteRows.length) warnings.push("Aucune ligne exploitable détectée dans les onglets Projets, Tâches, Sections ou Athlètes.");
 
     return warnings;
+  };
+
+  const triggerImport = (scope) => {
+    importScopeRef.current = scope;
+    setImportScope(scope);
+    importInputRef.current?.click();
   };
 
   const handleImportFile = async (event) => {
@@ -2915,21 +3250,26 @@ export default function JamSaaSApp() {
     event.target.value = "";
     if (!file) return;
     try {
+      const scope = importScopeRef.current || importScope;
+      const include = (entity) => scope === "all" || scope === entity;
       const buffer = await file.arrayBuffer();
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(buffer);
-      const projectRows = readSheetRows(workbook, ["Projets", "Projects"]);
-      const taskRows = readSheetRows(workbook, ["Tâches", "Taches", "Tasks"]);
-      const athleteRows = readSheetRows(workbook, ["Athlètes", "Athletes", "Sportifs"]);
-      const activeTab = athleteRows.length ? "athletes" : projectRows.length ? "projects" : "tasks";
+      const projectRows = include("projects") ? readSheetRows(workbook, ["Projets", "Projects"]) : [];
+      const taskRows = include("tasks") ? readSheetRows(workbook, ["Tâches", "Taches", "Tasks"]) : [];
+      const sectionRows = include("clubs") ? readSheetRows(workbook, ["Sections", "Section", "Clubs"]) : [];
+      const athleteRows = include("athletes") ? readSheetRows(workbook, ["Athlètes", "Athletes", "Sportifs"]) : [];
+      const activeTab = scope !== "all" ? scope : athleteRows.length ? "athletes" : sectionRows.length ? "clubs" : projectRows.length ? "projects" : "tasks";
 
       setImportPreview({
         fileName: file.name,
+        scope,
         projectRows,
         taskRows,
+        sectionRows,
         athleteRows,
         activeTab,
-        warnings: buildImportWarnings({ projectRows, taskRows, athleteRows }),
+        warnings: buildImportWarnings({ projectRows, taskRows, sectionRows, athleteRows }),
       });
     } catch (error) {
       window.alert(`Import impossible : ${error.message}`);
@@ -2941,11 +3281,12 @@ export default function JamSaaSApp() {
     const counts = {
       projects: (importPreview.projectRows || []).filter((row) => rowProjectName(row)).length,
       tasks: (importPreview.taskRows || []).filter((row) => rowTaskTitle(row)).length,
+      sections: (importPreview.sectionRows || []).filter((row) => rowSectionName(row)).length,
       athletes: (importPreview.athleteRows || []).filter((row) => rowAthleteName(row)).length,
     };
     applyImportRows(importPreview);
     setImportPreview(null);
-    window.alert(`Import terminé : ${counts.projects} projet(s), ${counts.tasks} tâche(s), ${counts.athletes} athlète(s).`);
+    window.alert(`Import terminé : ${counts.projects} projet(s), ${counts.tasks} tâche(s), ${counts.sections} section(s), ${counts.athletes} athlète(s).`);
   };
 
   const addGlobalColumn = ({ name, type }) => {
@@ -2995,7 +3336,7 @@ export default function JamSaaSApp() {
     const days = daysFromToday(project.endDate, todayTime);
     return project.status !== "Terminé" && days !== null && days < 0;
   });
-  const incompleteAthletes = wsAthletes.filter((athlete) => !athlete.email || !athlete.phone || !athlete.category);
+  const incompleteAthletes = wsAthletes.filter((athlete) => !athlete.email || !athlete.phone || !athlete.sectionId || !athlete.subSection || !athlete.category);
   const projectBudgetFields = useMemo(() => {
     const financial = projectCustomFields.filter((field) => field.type === "financier");
     const budgetNamed = financial.filter((field) => normalizeKey(field.name).includes("budget"));
@@ -3006,29 +3347,202 @@ export default function JamSaaSApp() {
     total: wsProjects.reduce((sum, project) => sum + (Number(project.customFieldValues?.[field.id]) || 0), 0),
   })), [projectBudgetFields, wsProjects]);
   const totalBudget = budgetTotals.reduce((sum, row) => sum + row.total, 0);
+  const dashboardWidgets = data.dashboardWidgets?.length ? data.dashboardWidgets : DEFAULT_DASHBOARD_WIDGETS;
+
+  const dashboardSourceRows = (source) => {
+    if (source === "projects") return wsProjects;
+    if (source === "athletes") return wsAthletes;
+    if (source === "clubs") return wsClubs;
+    return wsTasks;
+  };
+  const dashboardFilterLabel = (filter) => DASHBOARD_FILTERS.find((item) => item.id === filter)?.label || "Tous";
+  const dashboardSourceLabel = (source) => DASHBOARD_SOURCES.find((item) => item.id === source)?.label || "Tâches";
+  const dashboardTypeLabel = (type) => DASHBOARD_WIDGET_TYPES.find((item) => item.id === type)?.label || "Nombre";
+  const dashboardGroupValue = (row, widget) => {
+    if (widget.groupBy === "priority") return row.priority || "Sans priorité";
+    if (widget.groupBy === "section") return sectionName(row.sectionId) || row.name || "Sans section";
+    if (widget.groupBy === "profile") return row.category || "Sans profil";
+    if (widget.groupBy === "assignee") return row.assignee || row.owner || row.coach || row.contactName || "Non assigné";
+    return row.status || "Sans statut";
+  };
+  const dashboardFilteredRows = (widget) => {
+    const rows = dashboardSourceRows(widget.source);
+    const source = widget.source || "tasks";
+    const filter = widget.filter || "all";
+    if (filter === "completed") return rows.filter((row) => row.status === "Terminé" || row.status === "Validé");
+    if (filter === "open") return rows.filter((row) => row.status !== "Terminé" && row.status !== "Validé");
+    if (filter === "overdue") {
+      if (source === "projects") return rows.filter((row) => row.status !== "Terminé" && daysFromToday(row.endDate, todayTime) < 0);
+      if (source === "tasks") return rows.filter((row) => row.status !== "Terminé" && daysFromToday(row.endDate, todayTime) < 0);
+      return [];
+    }
+    if (filter === "upcoming") {
+      if (source !== "tasks" && source !== "projects") return [];
+      return rows.filter((row) => {
+        const days = daysFromToday(row.endDate, todayTime);
+        return row.status !== "Terminé" && days !== null && days >= 0 && days <= 14;
+      });
+    }
+    if (filter === "highPriority") return rows.filter((row) => row.priority === "Haute" || row.priority === "Critique");
+    if (filter === "unassigned") return rows.filter((row) => !row.assignee && !row.owner && !row.coach && !row.contactName);
+    if (filter === "incomplete") {
+      if (source === "athletes") return rows.filter((row) => !row.email || !row.phone || !row.sectionId || !row.subSection || !row.category);
+      if (source === "tasks") return rows.filter((row) => !row.assignee || !row.endDate);
+      if (source === "projects") return rows.filter((row) => !row.owner || !row.endDate);
+      return rows.filter((row) => !row.contactName || !row.email);
+    }
+    return rows;
+  };
+  const dashboardNumberValue = (widget) => {
+    if (widget.filter === "budget") return formatMoney(totalBudget);
+    return dashboardFilteredRows(widget).length;
+  };
+  const dashboardGroupedData = (widget) => {
+    const rows = dashboardFilteredRows(widget);
+    const map = new Map();
+    rows.forEach((row) => {
+      const key = dashboardGroupValue(row, widget);
+      map.set(key, (map.get(key) || 0) + 1);
+    });
+    return Array.from(map.entries()).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+  };
+  const dashboardRowsForWidget = (widget, groupValue = null) => {
+    if (!widget) return [];
+    let rows = dashboardFilteredRows(widget);
+    if (groupValue) rows = rows.filter((row) => dashboardGroupValue(row, widget) === groupValue);
+    return rows;
+  };
+  const dashboardRowTitle = (row, source) => {
+    if (source === "tasks") return row.title || "Tâche sans titre";
+    if (source === "projects") return row.name || "Projet sans nom";
+    if (source === "athletes") return row.name || "Athlète sans nom";
+    return row.name || "Section sans nom";
+  };
+  const dashboardRowText = (row, source) => {
+    const common = [dashboardRowTitle(row, source), row.status, row.priority, row.owner, row.assignee, row.coach, row.contactName, row.email, row.phone, row.endDate, row.city].filter(Boolean);
+    if (source === "tasks") common.push(data.projects.find((project) => project.id === row.projectId)?.name);
+    if (source === "athletes") common.push(sectionName(row.sectionId), row.subSection, row.category);
+    if (source === "clubs") common.push((row.subSections || []).join(" "));
+    return common.join(" ").toLowerCase();
+  };
+  const dashboardBudgetForProject = (project) => projectBudgetFields.reduce((sum, field) => sum + (Number(project.customFieldValues?.[field.id]) || 0), 0);
+  const dashboardDrilldownRows = dashboardRowsForWidget(dashboardDrilldown?.widget, dashboardDrilldown?.groupValue);
+  const dashboardDrilldownVisibleRows = dashboardDrilldownRows
+    .filter((row) => !dashboardDataSearch.trim() || dashboardRowText(row, dashboardDrilldown?.widget?.source).includes(dashboardDataSearch.trim().toLowerCase()))
+    .sort((a, b) => {
+      const source = dashboardDrilldown?.widget?.source || "tasks";
+      if (dashboardDataSort === "date") return String(a.endDate || "").localeCompare(String(b.endDate || ""));
+      if (dashboardDataSort === "status") return String(a.status || "").localeCompare(String(b.status || ""));
+      if (dashboardDataSort === "priority") return String(a.priority || "").localeCompare(String(b.priority || ""));
+      return dashboardRowTitle(a, source).localeCompare(dashboardRowTitle(b, source));
+    });
+  const openDashboardWidget = (widget, groupValue = null) => {
+    setDashboardDrilldown({ widget: { ...widget }, groupValue });
+    setDashboardDataSearch("");
+    setDashboardDataSort("name");
+    setView("dashboardData");
+  };
+  const closeDashboardDrilldown = () => {
+    setDashboardDrilldown(null);
+    setView("dashboard");
+  };
+  const editDashboardRow = (row, source) => {
+    if (source === "projects") return handleEditProject(row);
+    if (source === "tasks") {
+      setForm({ ...row });
+      setTaskModal({ open: true, item: row });
+      return;
+    }
+    if (source === "athletes") {
+      setForm({ ...row });
+      setAthleteModal({ open: true, item: row });
+      return;
+    }
+    handleEditSection(row);
+  };
+  const dashboardDataColumns = (source) => {
+    if (source === "projects") {
+      return [
+        { key: "name", label: "Projet", render: (row) => <span className="font-semibold text-slate-900">{row.name}</span> },
+        { key: "status", label: "Statut", render: (row) => <Badge className={badgeClass("status", row.status)}>{row.status || "—"}</Badge> },
+        { key: "priority", label: "Priorité", render: (row) => <Badge className={badgeClass("priority", row.priority)}>{row.priority || "—"}</Badge> },
+        { key: "owner", label: "Responsable", render: (row) => row.owner || "—" },
+        { key: "endDate", label: "Échéance", render: (row) => row.endDate || "—" },
+        { key: "budget", label: "Budget", render: (row) => formatMoney(dashboardBudgetForProject(row)) },
+      ];
+    }
+    if (source === "athletes") {
+      return [
+        { key: "name", label: "Athlète", render: (row) => <span className="font-semibold text-slate-900">{row.name}</span> },
+        { key: "sectionId", label: "Section", render: (row) => sectionName(row.sectionId) || "—" },
+        { key: "subSection", label: "Sous-section", render: (row) => row.subSection || "—" },
+        { key: "category", label: "Profil", render: (row) => row.category || "—" },
+        { key: "coach", label: "Coach", render: (row) => row.coach || "—" },
+        { key: "status", label: "Statut", render: (row) => <Badge>{row.status || "—"}</Badge> },
+        { key: "contact", label: "Contact", render: (row) => row.email || row.phone || "—" },
+      ];
+    }
+    if (source === "clubs") {
+      return [
+        { key: "name", label: "Section", render: (row) => <span className="font-semibold text-slate-900">{row.name}</span> },
+        { key: "status", label: "Statut", render: (row) => <Badge>{row.status || "—"}</Badge> },
+        { key: "subSections", label: "Sous-sections", render: (row) => row.subSections?.length ? row.subSections.join(", ") : "—" },
+        { key: "athletes", label: "Athlètes", render: (row) => sectionAthleteCount(row.id) },
+        { key: "contactName", label: "Responsable", render: (row) => row.contactName || "—" },
+        { key: "phone", label: "Téléphone", render: (row) => row.phone || "—" },
+      ];
+    }
+    return [
+      { key: "title", label: "Tâche", render: (row) => <span className="font-semibold text-slate-900">{row.title}</span> },
+      { key: "status", label: "Statut", render: (row) => <Badge className={badgeClass("status", row.status)}>{row.status || "—"}</Badge> },
+      { key: "priority", label: "Priorité", render: (row) => <Badge className={badgeClass("priority", row.priority)}>{row.priority || "—"}</Badge> },
+      { key: "assignee", label: "Responsable", render: (row) => row.assignee || "—" },
+      { key: "endDate", label: "Échéance", render: (row) => row.endDate || "—" },
+      { key: "project", label: "Projet", render: (row) => data.projects.find((project) => project.id === row.projectId)?.name || "—" },
+      { key: "progress", label: "Progression", render: (row) => `${normalizeTaskProgress(row.progress, row.status)}%` },
+    ];
+  };
+  const openWidgetEditor = (widget = null) => {
+    setDashboardWidgetForm(widget ? { ...widget } : { type: "number", title: "Nouveau KPI", source: "tasks", filter: "all", groupBy: "status", tone: "slate", size: "small" });
+    setDashboardWidgetModal({ open: true, item: widget });
+  };
+  const saveDashboardWidget = () => {
+    const item = { ...dashboardWidgetForm, id: dashboardWidgetForm.id || "dw_" + uid().slice(0, 8) };
+    setData((prev) => {
+      const widgets = prev.dashboardWidgets?.length ? prev.dashboardWidgets : DEFAULT_DASHBOARD_WIDGETS;
+      const exists = widgets.some((widget) => widget.id === item.id);
+      return { ...prev, dashboardWidgets: exists ? widgets.map((widget) => widget.id === item.id ? item : widget) : [...widgets, item] };
+    });
+    setDashboardWidgetModal({ open: false, item: null });
+    setDashboardWidgetForm({});
+  };
+  const deleteDashboardWidget = (widgetId) => {
+    setData((prev) => ({ ...prev, dashboardWidgets: (prev.dashboardWidgets || DEFAULT_DASHBOARD_WIDGETS).filter((widget) => widget.id !== widgetId) }));
+  };
+  const resetDashboardWidgets = () => setData((prev) => ({ ...prev, dashboardWidgets: DEFAULT_DASHBOARD_WIDGETS }));
 
   const navGroups = [
     {
       label: "Pilotage",
       items: [
-        { id: "dashboard", label: "Tableau de bord", Icon: LayoutDashboard, count: overdueTasks.length ? `${overdueTasks.length}` : null, tone: "danger" },
+        { id: "dashboard", label: "Tableau de bord", Icon: LayoutDashboard, count: overdueTasks.length ? `${overdueTasks.length}` : null, tone: "danger", tooltip: `${overdueTasks.length} tâche${overdueTasks.length > 1 ? "s" : ""} en retard` },
       ],
     },
     {
       label: "Production",
       items: [
-        { id: "projects", label: "Projets", Icon: FolderKanban, count: wsProjects.length, alert: overdueProjects.length },
-        { id: "tasks", label: "Tâches", Icon: ListChecks, count: wsTasks.length, alert: overdueTasks.length },
-        { id: "athletes", label: "Athlètes", Icon: Users, count: wsAthletes.length, alert: incompleteAthletes.length },
-        { id: "clubs", label: "Clubs", Icon: Building2, count: wsClubs.length },
+        { id: "projects", label: "Projets", Icon: FolderKanban, count: wsProjects.length, alert: overdueProjects.length, tooltip: overdueProjects.length ? `${overdueProjects.length} projet${overdueProjects.length > 1 ? "s" : ""} en retard` : `${wsProjects.length} projet${wsProjects.length > 1 ? "s" : ""} au total` },
+        { id: "tasks", label: "Tâches", Icon: ListChecks, count: wsTasks.length, alert: overdueTasks.length, tooltip: overdueTasks.length ? `${overdueTasks.length} tâche${overdueTasks.length > 1 ? "s" : ""} en retard` : `${wsTasks.length} tâche${wsTasks.length > 1 ? "s" : ""} au total` },
+        { id: "athletes", label: "Athlètes", Icon: Users, count: wsAthletes.length, alert: incompleteAthletes.length, tooltip: incompleteAthletes.length ? `${incompleteAthletes.length} fiche${incompleteAthletes.length > 1 ? "s" : ""} athlète à compléter` : `${wsAthletes.length} athlète${wsAthletes.length > 1 ? "s" : ""} au total` },
+        { id: "clubs", label: "Sections", Icon: Building2, count: wsClubs.length, tooltip: `${wsClubs.length} section${wsClubs.length > 1 ? "s" : ""} au total` },
       ],
     },
     {
       label: "Communication",
       items: [
-        { id: "documents", label: "Documents", Icon: FileText, count: wsDocs.length },
-        { id: "convocations", label: "Convocations", Icon: CalendarDays, count: wsConvocations.length },
-        { id: "notifications", label: "Notifications", Icon: Bell, count: wsNotifications.length },
+        { id: "documents", label: "Documents", Icon: FileText, count: wsDocs.length, tooltip: `${wsDocs.length} document${wsDocs.length > 1 ? "s" : ""} au total` },
+        { id: "convocations", label: "Convocations", Icon: CalendarDays, count: wsConvocations.length, tooltip: `${wsConvocations.length} convocation${wsConvocations.length > 1 ? "s" : ""} au total` },
+        { id: "notifications", label: "Notifications", Icon: Bell, count: wsNotifications.length, tooltip: `${wsNotifications.length} notification${wsNotifications.length > 1 ? "s" : ""} au total` },
       ],
     },
     {
@@ -3038,6 +3552,28 @@ export default function JamSaaSApp() {
       ],
     },
   ];
+
+  function NavCounter({ value, active, alert, tone, tooltip }) {
+    if (value === null || value === undefined) return null;
+    const counterClass = active
+      ? alert ? "bg-white text-red-600" : "bg-white/15 text-white"
+      : alert || tone === "danger" ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-500";
+    return (
+      <span className="relative group/counter shrink-0" title={tooltip}>
+        <span
+          aria-label={tooltip}
+          className={`block min-w-6 rounded-full px-1.5 py-0.5 text-[11px] font-bold text-center ${counterClass}`}
+        >
+          {value}
+        </span>
+        {tooltip && (
+          <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-xl group-hover/counter:block">
+            {tooltip}
+          </span>
+        )}
+      </span>
+    );
+  }
 
   // Shared filter bar
   function FilterBar({ withSport = true, withStatus = true, withPriority = false, statusOptions = STATUS_OPTIONS }) {
@@ -3183,11 +3719,12 @@ export default function JamSaaSApp() {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="font-semibold text-sm text-slate-900 truncate">{athlete.name}</h3>
-          <p className="text-xs text-slate-500 truncate">{sportName(athlete.sport)}</p>
+          <p className="text-xs text-slate-500 truncate">{sectionName(athlete.sectionId) || sportName(athlete.sport)}</p>
         </div>
         <ActionBtns onEdit={() => { setForm({ ...athlete }); setAthleteModal({ open: true, item: athlete }); }} onDelete={() => requestDelete("athlete", athlete)} />
       </div>
       <div className="flex flex-wrap gap-1.5">
+        {athlete.subSection && <Badge>{athlete.subSection}</Badge>}
         {athlete.category && <Badge>{athlete.category}</Badge>}
         {athlete.coach && <Badge>{athlete.coach}</Badge>}
       </div>
@@ -3200,13 +3737,12 @@ export default function JamSaaSApp() {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="font-semibold text-sm text-slate-900 truncate">{club.name}</h3>
-          <p className="text-xs text-slate-500 truncate">{club.city || sportName(club.sport)}</p>
+          <p className="text-xs text-slate-500 truncate">{club.city || "Section JAM"}</p>
         </div>
-        <ActionBtns onEdit={() => { setForm({ ...club }); setClubModal({ open: true, item: club }); }} onDelete={() => requestDelete("club", club)} />
+        <ActionBtns onEdit={() => handleEditSection(club)} onDelete={() => requestDelete("club", club)} />
       </div>
       <div className="flex flex-wrap gap-1.5">
-        <Badge>{sportName(club.sport)}</Badge>
-        {club.delegationSize && <Badge>{club.delegationSize} pers.</Badge>}
+        {club.subSections?.length > 0 && <Badge>{club.subSections.length} sous-sections</Badge>}
       </div>
       {(club.contactName || club.email) && <p className="text-xs text-slate-500 truncate">{club.contactName || club.email}</p>}
     </div>
@@ -3263,6 +3799,189 @@ export default function JamSaaSApp() {
     </div>
   );
 
+  const widgetToneClass = (tone) => ({
+    red: "bg-red-50 text-red-700 border-red-100",
+    amber: "bg-amber-50 text-amber-700 border-amber-100",
+    green: "bg-emerald-50 text-emerald-700 border-emerald-100",
+    blue: "bg-blue-50 text-blue-700 border-blue-100",
+    violet: "bg-violet-50 text-violet-700 border-violet-100",
+    slate: "bg-slate-50 text-slate-700 border-slate-100",
+  }[tone || "slate"] || "bg-slate-50 text-slate-700 border-slate-100");
+
+  const widgetAccentClass = (tone) => ({
+    red: "bg-red-500",
+    amber: "bg-amber-500",
+    green: "bg-emerald-500",
+    blue: "bg-blue-500",
+    violet: "bg-violet-500",
+    slate: "bg-slate-900",
+  }[tone || "slate"] || "bg-slate-900");
+
+  const dashboardWidgetSpan = (widget) => widget.size === "wide" ? "md:col-span-2" : "";
+  const dashboardWidgetKeyDown = (event, widget) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openDashboardWidget(widget);
+    }
+  };
+
+  const renderWidgetActions = (widget) => dashboardEditMode && (
+    <div className="absolute right-3 top-3 flex gap-1 rounded-xl border bg-white/90 p-1 shadow-sm" onClick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => openWidgetEditor(widget)}
+        className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+        title="Modifier le widget"
+      >
+        <Edit3 className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => deleteDashboardWidget(widget.id)}
+        className="rounded-lg p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600"
+        title="Supprimer le widget"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  );
+
+  const renderNumberWidget = (widget) => (
+    <Card
+      key={widget.id}
+      role="button"
+      tabIndex={0}
+      onClick={() => openDashboardWidget(widget)}
+      onKeyDown={(event) => dashboardWidgetKeyDown(event, widget)}
+      className={`relative cursor-pointer p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900/20 ${dashboardWidgetSpan(widget)}`}
+    >
+      {renderWidgetActions(widget)}
+      <div className="flex min-h-36 flex-col justify-between gap-5">
+        <div className="flex items-start justify-between gap-4 pr-16">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-600">{widget.title}</p>
+            <p className="mt-1 text-xs text-slate-400">{dashboardSourceLabel(widget.source)} · {dashboardFilterLabel(widget.filter)}</p>
+          </div>
+          <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${widgetToneClass(widget.tone)}`}>
+            <BarChart3 className="h-5 w-5" />
+          </span>
+        </div>
+        <div>
+          <p className="text-4xl font-bold tracking-normal text-slate-950">{dashboardNumberValue(widget)}</p>
+          <p className="mt-3 text-sm font-medium text-slate-500">Ouvrir {dashboardSourceLabel(widget.source).toLowerCase()}</p>
+        </div>
+      </div>
+    </Card>
+  );
+
+  const renderBarWidget = (widget) => {
+    const rows = dashboardGroupedData(widget).slice(0, 6);
+    const max = Math.max(1, ...rows.map((row) => row.value));
+    return (
+      <Card
+        key={widget.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => openDashboardWidget(widget)}
+        onKeyDown={(event) => dashboardWidgetKeyDown(event, widget)}
+        className={`relative cursor-pointer p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900/20 ${dashboardWidgetSpan(widget)}`}
+      >
+        {renderWidgetActions(widget)}
+        <div className="mb-5 pr-20">
+          <p className="text-sm font-semibold text-slate-900">{widget.title}</p>
+          <p className="mt-1 text-xs text-slate-400">{dashboardSourceLabel(widget.source)} · groupé par {DASHBOARD_GROUPS.find((item) => item.id === widget.groupBy)?.label || "Statut"}</p>
+        </div>
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <button
+              key={row.label}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openDashboardWidget(widget, row.label);
+              }}
+              className="grid w-full grid-cols-[minmax(90px,150px)_1fr_32px] items-center gap-3 rounded-xl px-2 py-1 text-left text-sm hover:bg-slate-50"
+              title={`Voir les données : ${row.label}`}
+            >
+              <span className="truncate text-slate-600">{row.label}</span>
+              <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                <div className={`h-full rounded-full ${widgetAccentClass(widget.tone)}`} style={{ width: `${Math.max(8, (row.value / max) * 100)}%` }} />
+              </div>
+              <span className="text-right font-semibold text-slate-900">{row.value}</span>
+            </button>
+          ))}
+          {!rows.length && <p className="rounded-2xl border border-dashed p-5 text-center text-sm text-slate-400">Aucune donnée pour ce widget.</p>}
+        </div>
+      </Card>
+    );
+  };
+
+  const renderDonutWidget = (widget) => {
+    const rows = dashboardGroupedData(widget).slice(0, 5);
+    const total = rows.reduce((sum, row) => sum + row.value, 0);
+    const colors = ["#7c3aed", "#2563eb", "#059669", "#d97706", "#dc2626"];
+    let start = 0;
+    const gradient = total
+      ? rows.map((row, index) => {
+          const end = start + (row.value / total) * 100;
+          const segment = `${colors[index % colors.length]} ${start}% ${end}%`;
+          start = end;
+          return segment;
+        }).join(", ")
+      : "#e2e8f0 0% 100%";
+    return (
+      <Card
+        key={widget.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => openDashboardWidget(widget)}
+        onKeyDown={(event) => dashboardWidgetKeyDown(event, widget)}
+        className={`relative cursor-pointer p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900/20 ${dashboardWidgetSpan(widget)}`}
+      >
+        {renderWidgetActions(widget)}
+        <div className="mb-5 pr-20">
+          <p className="text-sm font-semibold text-slate-900">{widget.title}</p>
+          <p className="mt-1 text-xs text-slate-400">{dashboardSourceLabel(widget.source)} · {dashboardFilterLabel(widget.filter)}</p>
+        </div>
+        <div className="grid items-center gap-6 sm:grid-cols-[190px_1fr]">
+          <div className="relative mx-auto h-44 w-44 rounded-full" style={{ background: `conic-gradient(${gradient})` }}>
+            <div className="absolute inset-8 flex flex-col items-center justify-center rounded-full bg-white">
+              <span className="text-3xl font-bold text-slate-950">{total}</span>
+              <span className="text-xs text-slate-400">total</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {rows.map((row, index) => (
+              <button
+                key={row.label}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openDashboardWidget(widget, row.label);
+                }}
+                className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-1.5 text-left text-sm hover:bg-slate-50"
+                title={`Voir les données : ${row.label}`}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
+                  <span className="truncate text-slate-600">{row.label}</span>
+                </span>
+                <span className="font-semibold text-slate-900">{row.value}</span>
+              </button>
+            ))}
+            {!rows.length && <p className="text-sm text-slate-400">Aucune donnée.</p>}
+          </div>
+        </div>
+      </Card>
+    );
+  };
+
+  const renderDashboardWidget = (widget) => {
+    if (widget.type === "bar") return renderBarWidget(widget);
+    if (widget.type === "donut") return renderDonutWidget(widget);
+    return renderNumberWidget(widget);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex">
       <input ref={importInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
@@ -3290,19 +4009,21 @@ export default function JamSaaSApp() {
             <div key={group.label}>
               <p className="px-3 mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">{group.label}</p>
               <div className="space-y-1">
-                {group.items.map(({ id, label, Icon, count, alert, tone }) => (
+                {group.items.map(({ id, label, Icon, count, alert, tone, tooltip }) => (
                   <button
                     key={id}
-                    onClick={() => { setView(id); resetFilters(); }}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm transition-colors ${view === id ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
+                    onClick={() => goToView(id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm transition-colors ${view === id || (id === "dashboard" && view === "dashboardData") ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
                     <span className="flex-1 text-left truncate">{label}</span>
-                    {alert > 0 ? (
-                      <span className={`min-w-6 rounded-full px-1.5 py-0.5 text-[11px] font-bold text-center ${view === id ? "bg-white text-red-600" : "bg-red-50 text-red-600"}`}>{alert}</span>
-                    ) : count !== null && count !== undefined ? (
-                      <span className={`min-w-6 rounded-full px-1.5 py-0.5 text-[11px] font-bold text-center ${view === id ? "bg-white/15 text-white" : tone === "danger" ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-500"}`}>{count}</span>
-                    ) : null}
+                    <NavCounter
+                      value={alert > 0 ? alert : count}
+                      active={view === id || (id === "dashboard" && view === "dashboardData")}
+                      alert={alert > 0}
+                      tone={tone}
+                      tooltip={tooltip}
+                    />
                   </button>
                 ))}
               </div>
@@ -3319,14 +4040,24 @@ export default function JamSaaSApp() {
               <div className={`h-full rounded-full ${progressTone(avgProgress)}`} style={{ width: `${avgProgress}%` }} />
             </div>
             <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
-              <div className="rounded-xl bg-white border border-slate-200 p-2">
+              <button
+                type="button"
+                onClick={() => goToView("tasks")}
+                className="rounded-xl bg-white border border-slate-200 p-2 text-left transition hover:border-red-200 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-200"
+                title="Voir les tâches en retard"
+              >
                 <p className="font-bold text-slate-900">{overdueTasks.length}</p>
                 <p className="text-slate-500">retard</p>
-              </div>
-              <div className="rounded-xl bg-white border border-slate-200 p-2">
+              </button>
+              <button
+                type="button"
+                onClick={() => goToView("tasks")}
+                className="rounded-xl bg-white border border-slate-200 p-2 text-left transition hover:border-blue-200 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                title="Voir les tâches à venir"
+              >
                 <p className="font-bold text-slate-900">{upcomingTasks.length}</p>
                 <p className="text-slate-500">à venir</p>
-              </div>
+              </button>
             </div>
           </div>
         </div>
@@ -3337,176 +4068,270 @@ export default function JamSaaSApp() {
 
         {/* ── DASHBOARD ── */}
         {view === "dashboard" && (
-          <div className="p-6 max-w-6xl mx-auto">
-            <PageHeader
-              title="Tableau de bord"
-              subtitle="Vue d'ensemble de l'organisation sportive"
-              actions={
-                <>
-                  <button onClick={downloadImportTemplate} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
-                    <FileSpreadsheet className="w-4 h-4" /> Gabarit Excel
+          <div className="p-6 max-w-7xl mx-auto">
+            <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-bold text-slate-950">Tableau de bord</h1>
+                <p className="mt-1 text-slate-500">Une vue pilotable de la JAM, avec des indicateurs que tu peux adapter.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => openWidgetEditor()}
+                  className="inline-flex items-center gap-2 rounded-2xl border bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                >
+                  <Plus className="h-4 w-4" /> Ajouter un widget
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDashboardEditMode((value) => !value)}
+                  className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold shadow-sm ${dashboardEditMode ? "bg-slate-900 text-white" : "border bg-white text-slate-700 hover:bg-slate-50"}`}
+                >
+                  <BarChart3 className="h-4 w-4" /> {dashboardEditMode ? "Terminer" : "Personnaliser"}
+                </button>
+                {dashboardEditMode && (
+                  <button
+                    type="button"
+                    onClick={resetDashboardWidgets}
+                    className="inline-flex items-center gap-2 rounded-2xl border bg-white px-4 py-2 text-sm font-semibold text-slate-500 shadow-sm hover:bg-slate-50"
+                  >
+                    Réinitialiser
                   </button>
-                  <button onClick={() => importInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
-                    <Upload className="w-4 h-4" /> Importer Excel
-                  </button>
-                  <button onClick={exportExcel} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
-                    <Download className="w-4 h-4" /> Exporter Excel
-                  </button>
-                </>
-              }
-            />
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-              <StatCard title="Projets" value={wsProjects.length} subtitle={`${overdueProjects.length} en retard`} Icon={FolderKanban} tone={overdueProjects.length ? "red" : "slate"} />
-              <StatCard title="Tâches" value={totalTasks} subtitle={`${completedTasks} terminées`} Icon={ListChecks} tone="blue" />
-              <StatCard title="Athlètes" value={wsAthletes.length} subtitle={`${incompleteAthletes.length} fiches à compléter`} Icon={Users} tone={incompleteAthletes.length ? "amber" : "green"} />
-              <StatCard title="Clubs" value={wsClubs.length} subtitle="clubs suivis" Icon={Building2} tone="violet" />
-              <StatCard title="Budget total" value={formatMoney(totalBudget)} subtitle={`${projectBudgetFields.length} colonne${projectBudgetFields.length > 1 ? "s" : ""} budget`} Icon={FileSpreadsheet} tone="green" />
+                )}
+              </div>
             </div>
-            <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-4 mb-6">
+
+            <div className="mb-5 grid gap-4 md:grid-cols-4">
+              {dashboardWidgets.map((widget) => renderDashboardWidget(widget))}
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
               <Card className="p-5">
-                <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="mb-5 flex items-start justify-between gap-3">
                   <div>
-                    <h2 className="font-semibold">Pilotage opérationnel</h2>
-                    <p className="text-sm text-slate-500 mt-1">Les points qui demandent une action en priorité.</p>
+                    <h2 className="text-lg font-semibold text-slate-950">Priorités opérationnelles</h2>
+                    <p className="mt-1 text-sm text-slate-500">Les signaux qui doivent guider la journée.</p>
                   </div>
                   <Badge className={overdueTasks.length ? "bg-red-50 text-red-700 border-red-200" : "bg-green-50 text-green-700 border-green-200"}>
                     {overdueTasks.length ? `${overdueTasks.length} retard${overdueTasks.length > 1 ? "s" : ""}` : "À jour"}
                   </Badge>
                 </div>
-                <div className="grid md:grid-cols-3 gap-3 mb-5">
-                  <div className="rounded-2xl bg-red-50 border border-red-100 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-red-700">Retards</p>
-                    <p className="text-2xl font-semibold text-red-700 mt-1">{overdueTasks.length + overdueProjects.length}</p>
-                    <p className="text-xs text-red-700/70 mt-1">tâches + projets</p>
-                  </div>
-                  <div className="rounded-2xl bg-amber-50 border border-amber-100 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Critiques</p>
-                    <p className="text-2xl font-semibold text-amber-700 mt-1">{criticalTasks.length}</p>
-                    <p className="text-xs text-amber-700/70 mt-1">tâches haute priorité</p>
-                  </div>
-                  <div className="rounded-2xl bg-blue-50 border border-blue-100 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">14 jours</p>
-                    <p className="text-2xl font-semibold text-blue-700 mt-1">{upcomingTasks.length}</p>
-                    <p className="text-xs text-blue-700/70 mt-1">échéances proches</p>
-                  </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <button type="button" onClick={() => goToView("tasks")} className="rounded-2xl border border-red-100 bg-red-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
+                    <p className="text-xs font-bold uppercase tracking-wide text-red-700">Retards</p>
+                    <p className="mt-2 text-3xl font-bold text-red-700">{overdueTasks.length + overdueProjects.length}</p>
+                    <p className="mt-1 text-sm text-red-700/70">tâches + projets</p>
+                  </button>
+                  <button type="button" onClick={() => goToView("tasks")} className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
+                    <p className="text-xs font-bold uppercase tracking-wide text-amber-700">Critiques</p>
+                    <p className="mt-2 text-3xl font-bold text-amber-700">{criticalTasks.length}</p>
+                    <p className="mt-1 text-sm text-amber-700/70">haute priorité</p>
+                  </button>
+                  <button type="button" onClick={() => goToView("tasks")} className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
+                    <p className="text-xs font-bold uppercase tracking-wide text-blue-700">14 jours</p>
+                    <p className="mt-2 text-3xl font-bold text-blue-700">{upcomingTasks.length}</p>
+                    <p className="mt-1 text-sm text-blue-700/70">échéances proches</p>
+                  </button>
                 </div>
-                <ProgressBar value={avgProgress} label="Progression moyenne des tâches" />
-              </Card>
-
-              <Card className="p-5">
-                <h2 className="font-semibold mb-4">Budget</h2>
-                <div className="rounded-2xl bg-slate-900 text-white p-4 mb-3">
-                  <p className="text-xs uppercase tracking-wide text-slate-300">Total consolidé</p>
-                  <p className="text-3xl font-semibold mt-1">{formatMoney(totalBudget)}</p>
-                </div>
-                <div className="space-y-2">
-                  {budgetTotals.map(({ field, total }) => (
-                    <div key={field.id} className="flex items-center justify-between gap-3 text-sm">
-                      <span className="text-slate-600 truncate">{field.name}</span>
-                      <span className="font-semibold text-slate-900">{formatMoney(total)}</span>
-                    </div>
-                  ))}
-                  {!budgetTotals.length && <p className="text-sm text-slate-500">Ajoute une colonne financière de type budget dans Projets.</p>}
-                </div>
-              </Card>
-            </div>
-
-            <div className="grid lg:grid-cols-3 gap-4 mb-6">
-              <Card className="p-5">
-                <h2 className="font-semibold mb-4">Prochaines échéances</h2>
-                <div className="space-y-3">
-                  {upcomingTasks.map((task) => (
-                    <div key={task.id} className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{task.title}</p>
-                        <p className="text-xs text-slate-500">{data.projects.find((project) => project.id === task.projectId)?.name || "Sans projet"}</p>
-                      </div>
-                      <Badge className={task.daysLeft <= 2 ? "bg-red-50 text-red-700 border-red-200" : "bg-blue-50 text-blue-700 border-blue-200"}>
-                        J-{task.daysLeft}
-                      </Badge>
-                    </div>
-                  ))}
-                  {!upcomingTasks.length && <p className="text-sm text-slate-500">Aucune échéance dans les 14 jours.</p>}
+                <div className="mt-5">
+                  <ProgressBar value={avgProgress} label="Progression moyenne des tâches" />
                 </div>
               </Card>
 
               <Card className="p-5">
-                <h2 className="font-semibold mb-4">Données à compléter</h2>
+                <h2 className="mb-4 text-lg font-semibold text-slate-950">Données à compléter</h2>
                 <div className="space-y-2">
-                  <div className="flex justify-between text-sm"><span>Athlètes sans email</span><Badge>{wsAthletes.filter((a) => !a.email).length}</Badge></div>
-                  <div className="flex justify-between text-sm"><span>Athlètes sans téléphone</span><Badge>{wsAthletes.filter((a) => !a.phone).length}</Badge></div>
-                  <div className="flex justify-between text-sm"><span>Athlètes sans catégorie</span><Badge>{wsAthletes.filter((a) => !a.category).length}</Badge></div>
-                  <div className="flex justify-between text-sm"><span>Tâches non assignées</span><Badge>{wsTasks.filter((task) => !task.assignee).length}</Badge></div>
-                </div>
-              </Card>
-
-              <Card className="p-5">
-                <h2 className="font-semibold mb-4">Répartition sportive</h2>
-                <div className="space-y-2">
-                  {allSports.map((sport) => {
-                    const count = wsAthletes.filter((a) => a.sport === sport.id).length;
-                    return (
-                      <div key={sport.id} className="flex items-center justify-between">
-                        <span className="text-sm">{sport.name}</span>
-                        <Badge>{count}</Badge>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Card>
-            </div>
-
-            <div className="grid md:grid-cols-3 gap-4">
-              <Card className="p-5">
-                <h2 className="font-semibold mb-3">Statut clubs</h2>
-                <div className="space-y-2">
-                  {CLUB_STATUS.map((s) => {
-                    const count = wsClubs.filter((c) => c.status === s).length;
-                    const tone = s === "Validé" ? "Terminé" : s === "Inscrit" ? "En cours" : s === "Invité" ? "En attente" : "À faire";
-                    return (
-                      <div key={s} className="flex items-center justify-between">
-                        <span className="text-sm">{s}</span>
-                        <Badge className={badgeClass("status", tone)}>{count}</Badge>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Card>
-              <Card className="p-5">
-                <h2 className="font-semibold mb-3">Documents & comm.</h2>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm"><span>Docs internes</span><Badge>{wsDocs.filter((d) => !d.url).length}</Badge></div>
-                  <div className="flex justify-between text-sm"><span>Liens externes</span><Badge>{wsDocs.filter((d) => d.url).length}</Badge></div>
-                  <div className="flex justify-between text-sm"><span>Convocations</span><Badge>{wsConvocations.length}</Badge></div>
-                  <div className="flex justify-between text-sm"><span>Notifications</span><Badge>{wsNotifications.length}</Badge></div>
+                  <button type="button" onClick={() => goToView("athletes")} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans email</span><Badge>{wsAthletes.filter((a) => !a.email).length}</Badge></button>
+                  <button type="button" onClick={() => goToView("athletes")} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans téléphone</span><Badge>{wsAthletes.filter((a) => !a.phone).length}</Badge></button>
+                  <button type="button" onClick={() => goToView("athletes")} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans section</span><Badge>{wsAthletes.filter((a) => !a.sectionId).length}</Badge></button>
+                  <button type="button" onClick={() => goToView("athletes")} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans profil</span><Badge>{wsAthletes.filter((a) => !a.category).length}</Badge></button>
+                  <button type="button" onClick={() => goToView("tasks")} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Tâches non assignées</span><Badge>{wsTasks.filter((task) => !task.assignee).length}</Badge></button>
                 </div>
               </Card>
             </div>
           </div>
         )}
 
+        {/* ── DASHBOARD DATA ── */}
+        {view === "dashboardData" && (
+          <div className="p-6 max-w-7xl mx-auto">
+            {dashboardDrilldown?.widget ? (
+              <>
+                <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <button
+                      type="button"
+                      onClick={closeDashboardDrilldown}
+                      className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-900"
+                    >
+                      ← Retour au tableau de bord
+                    </button>
+                    <h1 className="text-3xl font-bold text-slate-950">Données du graphique</h1>
+                    <p className="mt-1 text-slate-500">
+                      {dashboardDrilldown.widget.title}
+                      {dashboardDrilldown.groupValue ? ` · ${dashboardDrilldown.groupValue}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openWidgetEditor(dashboardDrilldown.widget)}
+                      className="inline-flex items-center gap-2 rounded-2xl border bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                    >
+                      <Edit3 className="h-4 w-4" /> Modifier le widget
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => goToView(dashboardDrilldown.widget.source === "clubs" ? "clubs" : dashboardDrilldown.widget.source || "tasks")}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+                    >
+                      Ouvrir la vue complète
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mb-4 grid gap-3 md:grid-cols-4">
+                  <Card className="p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Source</p>
+                    <p className="mt-1 font-semibold text-slate-900">{dashboardSourceLabel(dashboardDrilldown.widget.source)}</p>
+                  </Card>
+                  <Card className="p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Type</p>
+                    <p className="mt-1 font-semibold text-slate-900">{dashboardTypeLabel(dashboardDrilldown.widget.type)}</p>
+                  </Card>
+                  <Card className="p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Filtre</p>
+                    <p className="mt-1 font-semibold text-slate-900">{dashboardFilterLabel(dashboardDrilldown.widget.filter)}</p>
+                  </Card>
+                  <Card className="p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Résultat</p>
+                    <p className="mt-1 font-semibold text-slate-900">{dashboardDrilldownVisibleRows.length} ligne{dashboardDrilldownVisibleRows.length > 1 ? "s" : ""}</p>
+                  </Card>
+                </div>
+
+                <Card className="mb-4 p-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative min-w-[260px] flex-1">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+                        placeholder="Rechercher dans les données..."
+                        value={dashboardDataSearch}
+                        onChange={(event) => setDashboardDataSearch(event.target.value)}
+                      />
+                    </div>
+                    <select
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
+                      value={dashboardDataSort}
+                      onChange={(event) => setDashboardDataSort(event.target.value)}
+                    >
+                      <option value="name">Tri : nom</option>
+                      <option value="status">Tri : statut</option>
+                      <option value="priority">Tri : priorité</option>
+                      <option value="date">Tri : échéance</option>
+                    </select>
+                    {dashboardDrilldown.groupValue && (
+                      <Badge className="bg-violet-50 text-violet-700 border-violet-200">
+                        Segment : {dashboardDrilldown.groupValue}
+                      </Badge>
+                    )}
+                  </div>
+                </Card>
+
+                <Card className="overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          {dashboardDataColumns(dashboardDrilldown.widget.source).map((column) => (
+                            <th key={column.key} className="border-b border-r border-slate-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                              {column.label}
+                            </th>
+                          ))}
+                          <th className="border-b border-slate-200 px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dashboardDrilldownVisibleRows.map((row) => (
+                          <tr key={row.id} className="border-b border-slate-100 bg-white hover:bg-slate-50">
+                            {dashboardDataColumns(dashboardDrilldown.widget.source).map((column) => (
+                              <td key={column.key} className="border-r border-slate-100 px-4 py-3 text-slate-700">
+                                {column.render(row)}
+                              </td>
+                            ))}
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => editDashboardRow(row, dashboardDrilldown.widget.source)}
+                                className="inline-flex items-center gap-1.5 rounded-xl border bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                              >
+                                <Edit3 className="h-3.5 w-3.5" /> Modifier
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {!dashboardDrilldownVisibleRows.length && (
+                          <tr>
+                            <td colSpan={dashboardDataColumns(dashboardDrilldown.widget.source).length + 1} className="px-4 py-10 text-center text-slate-500">
+                              Aucune ligne ne correspond à ce graphique.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </>
+            ) : (
+              <Card className="p-8 text-center">
+                <h1 className="text-2xl font-bold text-slate-950">Aucune donnée sélectionnée</h1>
+                <p className="mt-2 text-slate-500">Retourne au tableau de bord et clique sur un widget.</p>
+                <button onClick={closeDashboardDrilldown} className="mt-5 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+                  Tableau de bord
+                </button>
+              </Card>
+            )}
+          </div>
+        )}
+
         {/* ── PROJECTS ── */}
         {view === "projects" && (
           <div className="p-6 max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900">Projets</h1>
-                <p className="text-slate-500 mt-1">{filteredProjects.length} projet{filteredProjects.length > 1 ? "s" : ""} affiché{filteredProjects.length > 1 ? "s" : ""}</p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <ViewToggle options={projectViewOptions} value={projectViewMode} onChange={setProjectViewMode} />
-                <button onClick={() => setGlobalColumnModal({ entity: "projects", label: "Projets" })}
-                  className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
-                  <Plus className="w-4 h-4" /> Ajouter une colonne
-                </button>
-                <button onClick={() => setGuidedOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-2xl border border-slate-900 text-slate-900 text-sm font-medium hover:bg-slate-50">
-                  <Send className="w-4 h-4" /> Saisie guidée
-                </button>
-                <button onClick={openNewProjectModal}
-                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm font-medium">
-                  <Plus className="w-4 h-4" /> Nouveau projet
-                </button>
+            <div className="mb-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between flex-wrap gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-sm">
+                      <FolderKanban className="w-5 h-5" />
+                    </span>
+                    <div>
+                      <h1 className="text-2xl font-bold text-slate-900">Projets</h1>
+                      <p className="text-slate-500 mt-0.5">{filteredProjects.length} projet{filteredProjects.length > 1 ? "s" : ""} affiché{filteredProjects.length > 1 ? "s" : ""}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Badge className="bg-slate-50 text-slate-700 border-slate-200">{wsProjects.length} total</Badge>
+                    <Badge className="bg-blue-50 text-blue-700 border-blue-200">{wsProjects.filter((project) => project.status === "En cours").length} en cours</Badge>
+                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">{wsProjects.filter((project) => project.status === "Terminé").length} terminés</Badge>
+                    {overdueProjects.length > 0 && <Badge className="bg-red-50 text-red-700 border-red-200">{overdueProjects.length} en retard</Badge>}
+                  </div>
+                </div>
+                <div className="flex w-full items-center gap-2 flex-wrap justify-start xl:w-auto xl:justify-end">
+                  <ViewToggle options={projectViewOptions} value={projectViewMode} onChange={setProjectViewMode} />
+                  {fileActions("projects", "projets")}
+                  <button onClick={() => setGlobalColumnModal({ entity: "projects", label: "Projets" })}
+                    className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
+                    <Plus className="w-4 h-4" /> Ajouter une colonne
+                  </button>
+                  <button onClick={() => setGuidedOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-2xl border border-slate-900 text-slate-900 text-sm font-medium hover:bg-slate-50">
+                    <Send className="w-4 h-4" /> Saisie guidée
+                  </button>
+                  <button onClick={openNewProjectModal}
+                    className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm font-medium">
+                    <Plus className="w-4 h-4" /> Nouveau projet
+                  </button>
+                </div>
               </div>
             </div>
             <FilterBar withPriority={false} />
@@ -3558,6 +4383,7 @@ export default function JamSaaSApp() {
             <PageHeader
               title="Tâches"
               subtitle={`${filteredTasks.length} tâche${filteredTasks.length > 1 ? "s" : ""}`}
+              actions={fileActions("tasks", "tâches")}
               onNew={() => { setForm({ status: "À faire", priority: "Moyenne", progress: 0, customFieldValues: {} }); setTaskModal({ open: true, item: null }); }}
               newLabel="Nouvelle tâche"
             />
@@ -3620,23 +4446,14 @@ export default function JamSaaSApp() {
             <PageHeader
               title="Athlètes"
               subtitle={`${filteredAthletes.length} athlète${filteredAthletes.length > 1 ? "s" : ""}`}
-              actions={
-                <>
-                  <button onClick={downloadImportTemplate} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
-                    <FileSpreadsheet className="w-4 h-4" /> Gabarit Excel
-                  </button>
-                  <button onClick={() => importInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
-                    <Upload className="w-4 h-4" /> Importer athlètes
-                  </button>
-                </>
-              }
-              onNew={() => { setForm({ status: "Actif", sport: "developpe_couche" }); setAthleteModal({ open: true, item: null }); }}
+              actions={fileActions("athletes", "athlètes")}
+              onNew={() => { setForm({ status: "Actif" }); setAthleteModal({ open: true, item: null }); }}
               newLabel="Nouvel athlète"
             />
             <div className="-mt-4 mb-5 flex justify-end">
               <ViewToggle options={tableKanbanOptions} value={athleteViewMode} onChange={setAthleteViewMode} />
             </div>
-            <FilterBar statusOptions={ATHLETE_STATUS} />
+            <FilterBar withSport={false} statusOptions={ATHLETE_STATUS} />
             {athleteViewMode === "table" ? (
               <EntityTable
                 rows={filteredAthletes}
@@ -3646,11 +4463,11 @@ export default function JamSaaSApp() {
                   { key: "name", label: "Athlète", type: "texte", sortable: true },
                   { key: "status", label: "Statut", type: "statut", sortable: true, options: ATHLETE_STATUS,
                     render: (a) => <Badge className={badgeClass("status", a.status === "Actif" ? "En cours" : a.status === "Blessé" ? "En attente" : "À faire")}>{a.status}</Badge> },
-                  { key: "sport", label: "Sport", type: "statut", sortable: true,
-                    options: data.sports?.map((s) => s.name) || BASE_SPORTS.map((s) => s.name),
-                    accessor: (a) => sportName(a.sport),
-                    render: (a) => <Badge>{sportName(a.sport)}</Badge> },
-                  { key: "category", label: "Catégorie", type: "texte", sortable: true },
+                  { key: "sectionId", label: "Section", type: "texte", sortable: true,
+                    accessor: (a) => sectionName(a.sectionId),
+                    render: (a) => <span className="text-slate-600">{sectionName(a.sectionId) || "—"}</span> },
+                  { key: "subSection", label: "Sous-section", type: "texte", sortable: true },
+                  { key: "category", label: "Profil", type: "statut", sortable: true, options: ATHLETE_PROFILE_OPTIONS },
                   { key: "coach", label: "Coach", type: "personne", sortable: true },
                   { key: "email", label: "Email", type: "texte", sortable: true },
                   { key: "phone", label: "Téléphone", type: "texte", sortable: true },
@@ -3673,43 +4490,46 @@ export default function JamSaaSApp() {
           </div>
         )}
 
-        {/* ── CLUBS ── */}
+        {/* ── SECTIONS ── */}
         {view === "clubs" && (
           <div className="p-6 max-w-7xl mx-auto">
             <PageHeader
-              title="Clubs"
-              subtitle={`${filteredClubs.length} club${filteredClubs.length > 1 ? "s" : ""}`}
-              onNew={() => { setForm({ status: "À contacter", sport: "developpe_couche" }); setClubModal({ open: true, item: null }); }}
-              newLabel="Nouveau club"
+              title="Sections"
+              subtitle={`${filteredClubs.length} section${filteredClubs.length > 1 ? "s" : ""}`}
+              actions={fileActions("clubs", "sections")}
+              onNew={() => { setForm({ status: "À contacter", subSections: [] }); setClubModal({ open: true, item: null }); }}
+              newLabel="Nouvelle section"
             />
             <div className="-mt-4 mb-5 flex justify-end">
               <ViewToggle options={tableKanbanOptions} value={clubViewMode} onChange={setClubViewMode} />
             </div>
-            <FilterBar statusOptions={CLUB_STATUS} />
+            <FilterBar withSport={false} statusOptions={CLUB_STATUS} />
             {clubViewMode === "table" ? (
               <EntityTable
                 rows={filteredClubs}
                 nameKey="name"
-                emptyLabel="Aucun club trouvé."
+                emptyLabel="Aucune section trouvée."
                 builtinCols={[
-                  { key: "name", label: "Club", type: "texte", sortable: true },
+                  { key: "name", label: "Section", type: "texte", sortable: true },
                   { key: "status", label: "Statut", type: "statut", sortable: true, options: CLUB_STATUS,
                     render: (c) => {
                       const tone = c.status === "Validé" ? "Terminé" : c.status === "Inscrit" ? "En cours" : c.status === "Invité" ? "En attente" : "À faire";
                       return <Badge className={badgeClass("status", tone)}>{c.status}</Badge>;
                     } },
-                  { key: "sport", label: "Sport", type: "statut", sortable: true,
-                    accessor: (c) => sportName(c.sport),
-                    render: (c) => <Badge>{sportName(c.sport)}</Badge> },
                   { key: "city", label: "Ville", type: "texte", sortable: true },
-                  { key: "contactName", label: "Contact", type: "personne", sortable: true },
+                  { key: "subSections", label: "Sous-sections", type: "texte", sortable: false,
+                    accessor: (c) => (c.subSections || []).join(", "),
+                    render: (c) => <span className="text-slate-600">{c.subSections?.length ? c.subSections.join(", ") : "—"}</span> },
+                  { key: "contactName", label: "Responsable", type: "personne", sortable: true },
                   { key: "email", label: "Email", type: "texte", sortable: true },
                   { key: "phone", label: "Téléphone", type: "texte", sortable: true },
-                  { key: "delegationSize", label: "Délégation", type: "nombre", sortable: true },
+                  { key: "athleteCount", label: "Athlètes", type: "nombre", sortable: true,
+                    accessor: (section) => sectionAthleteCount(section.id),
+                    render: (section) => <span className="font-medium text-slate-700">{sectionAthleteCount(section.id)} athlète{sectionAthleteCount(section.id) > 1 ? "s" : ""}</span> },
                 ]}
                 config={data.tableConfig?.clubs}
                 onConfigChange={(next) => setData((prev) => ({ ...prev, tableConfig: { ...(prev.tableConfig || {}), clubs: next } }))}
-                onEdit={(club) => { setForm({ ...club }); setClubModal({ open: true, item: club }); }}
+                onEdit={handleEditSection}
                 onDelete={(club) => requestDelete("club", club)}
                 customFields={clubCustomFields}
               />
@@ -3719,7 +4539,7 @@ export default function JamSaaSApp() {
                 statuses={CLUB_STATUS}
                 onStatusChange={(id, status) => updateEntityStatus("clubs", id, status)}
                 renderCard={renderClubKanbanCard}
-                emptyLabel="Aucun club trouvé."
+                emptyLabel="Aucune section trouvée."
               />
             )}
           </div>
@@ -3911,7 +4731,7 @@ export default function JamSaaSApp() {
             <Card className="p-6 mb-6 bg-slate-50/60">
               <h2 className="font-semibold text-base mb-2">Colonnes personnalisées</h2>
               <p className="text-sm text-slate-600">
-                Les colonnes personnalisées se gèrent maintenant directement depuis chaque vue tableau (Projets, Tâches, Athlètes, Clubs, Documents).
+                Les colonnes personnalisées se gèrent maintenant directement depuis chaque vue tableau (Projets, Tâches, Athlètes, Sections, Documents).
                 Clique sur l'icône <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-white border align-middle">+</span> en bout de rangée d'en-têtes, ou sur le menu d'une colonne existante (« Ajouter à gauche / à droite »).
               </p>
             </Card>
@@ -4037,11 +4857,29 @@ export default function JamSaaSApp() {
         onClose={() => { setAthleteModal({ open: false, item: null }); setForm({}); }} onSave={saveAthlete}>
         <div className="grid md:grid-cols-2 gap-4">
           <input className="w-full rounded-2xl border px-4 py-3 md:col-span-2" placeholder="Nom complet *" value={form.name || ""} onChange={(e) => f("name", e.target.value)} />
-          <select className="w-full rounded-2xl border px-4 py-3" value={form.sport || ""} onChange={(e) => f("sport", e.target.value)}>
-            <option value="">Sport</option>
-            {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          <select
+            className="w-full rounded-2xl border px-4 py-3"
+            value={form.sectionId || ""}
+            onChange={(e) => {
+              const section = wsClubs.find((item) => item.id === e.target.value);
+              setForm((prev) => ({ ...prev, sectionId: e.target.value, subSection: "", sport: section?.sport || prev.sport }));
+            }}
+          >
+            <option value="">Section JAM</option>
+            {wsClubs.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
           </select>
-          <input className="w-full rounded-2xl border px-4 py-3" placeholder="Catégorie (ex : -88 kg, U13…)" value={form.category || ""} onChange={(e) => f("category", e.target.value)} />
+          {subSectionsFor(form.sectionId).length > 0 ? (
+            <select className="w-full rounded-2xl border px-4 py-3" value={form.subSection || ""} onChange={(e) => f("subSection", e.target.value)}>
+              <option value="">Sous-section</option>
+              {subSectionsFor(form.sectionId).map((sub) => <option key={sub} value={sub}>{sub}</option>)}
+            </select>
+          ) : (
+            <input className="w-full rounded-2xl border px-4 py-3" placeholder="Sous-section (ex : U13, -88 kg…)" value={form.subSection || ""} onChange={(e) => f("subSection", e.target.value)} />
+          )}
+          <select className="w-full rounded-2xl border px-4 py-3" value={form.category || ""} onChange={(e) => f("category", e.target.value)}>
+            <option value="">Profil</option>
+            {ATHLETE_PROFILE_OPTIONS.map((profile) => <option key={profile} value={profile}>{profile}</option>)}
+          </select>
           <input className="w-full rounded-2xl border px-4 py-3" placeholder="Coach" value={form.coach || ""} onChange={(e) => f("coach", e.target.value)} />
           <select className="w-full rounded-2xl border px-4 py-3" value={form.status || "Actif"} onChange={(e) => f("status", e.target.value)}>
             {ATHLETE_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -4058,28 +4896,33 @@ export default function JamSaaSApp() {
         )}
       </Modal>
 
-      {/* Club */}
-      <Modal open={clubModal.open} title={clubModal.item ? "Modifier le club" : "Nouveau club"}
+      {/* Section */}
+      <Modal open={clubModal.open} title={clubModal.item ? "Modifier la section" : "Nouvelle section"}
         onClose={() => { setClubModal({ open: false, item: null }); setForm({}); }} onSave={saveClub}>
         <div className="grid md:grid-cols-2 gap-4">
-          <input className="w-full rounded-2xl border px-4 py-3 md:col-span-2" placeholder="Nom du club *" value={form.name || ""} onChange={(e) => f("name", e.target.value)} />
-          <select className="w-full rounded-2xl border px-4 py-3" value={form.sport || ""} onChange={(e) => f("sport", e.target.value)}>
-            <option value="">Sport</option>
-            {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <input className="w-full rounded-2xl border px-4 py-3" placeholder="Ville" value={form.city || ""} onChange={(e) => f("city", e.target.value)} />
-          <input className="w-full rounded-2xl border px-4 py-3" placeholder="Nom du contact" value={form.contactName || ""} onChange={(e) => f("contactName", e.target.value)} />
+          <input className="w-full rounded-2xl border px-4 py-3 md:col-span-2" placeholder="Nom de la section *" value={form.name || ""} onChange={(e) => f("name", e.target.value)} />
+          <input className="w-full rounded-2xl border px-4 py-3" placeholder="Lieu / ville" value={form.city || ""} onChange={(e) => f("city", e.target.value)} />
+          <input className="w-full rounded-2xl border px-4 py-3" placeholder="Responsable de section" value={form.contactName || ""} onChange={(e) => f("contactName", e.target.value)} />
           <select className="w-full rounded-2xl border px-4 py-3" value={form.status || "À contacter"} onChange={(e) => f("status", e.target.value)}>
             {CLUB_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          <div className="rounded-2xl border px-4 py-3 bg-slate-50">
+            <p className="text-xs font-semibold text-slate-500 uppercase">Nombre d'athlètes</p>
+            <p className="text-lg font-bold text-slate-900">{sectionAthleteCount(form.id || clubModal.item?.id)} athlète{sectionAthleteCount(form.id || clubModal.item?.id) > 1 ? "s" : ""}</p>
+          </div>
           <input type="email" className="w-full rounded-2xl border px-4 py-3" placeholder="Email" value={form.email || ""} onChange={(e) => f("email", e.target.value)} />
           <input className="w-full rounded-2xl border px-4 py-3" placeholder="Téléphone" value={form.phone || ""} onChange={(e) => f("phone", e.target.value)} />
-          <input className="w-full rounded-2xl border px-4 py-3" placeholder="Taille délégation" value={form.delegationSize || ""} onChange={(e) => f("delegationSize", e.target.value)} />
+          <textarea
+            className="w-full rounded-2xl border px-4 py-3 md:col-span-2 resize-none h-24"
+            placeholder={"Sous-sections, une par ligne\nEx : U7\nU9\nU11"}
+            value={form.subSectionsText ?? (form.subSections || []).join("\n")}
+            onChange={(e) => f("subSectionsText", e.target.value)}
+          />
           <textarea className="w-full rounded-2xl border px-4 py-3 md:col-span-2 resize-none h-16" placeholder="Notes" value={form.notes || ""} onChange={(e) => f("notes", e.target.value)} />
         </div>
         {clubCustomFields.length > 0 && (
           <div className="mt-4">
-            <p className="text-sm font-medium text-slate-700 mb-3">Colonnes ajoutées au tableau Clubs</p>
+            <p className="text-sm font-medium text-slate-700 mb-3">Colonnes ajoutées au tableau Sections</p>
             <CustomFieldsEditor fields={clubCustomFields} values={form.customFieldValues} onChange={fcf} />
           </div>
         )}
@@ -4181,12 +5024,105 @@ export default function JamSaaSApp() {
         </div>
       </Modal>
 
+      {/* Dashboard widget */}
+      <Modal
+        open={dashboardWidgetModal.open}
+        title={dashboardWidgetModal.item ? "Modifier le widget" : "Nouveau widget"}
+        onClose={() => { setDashboardWidgetModal({ open: false, item: null }); setDashboardWidgetForm({}); }}
+        onSave={saveDashboardWidget}
+        saveLabel="Enregistrer le widget"
+      >
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="block md:col-span-2">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Titre</span>
+            <input
+              className="w-full rounded-2xl border px-4 py-3"
+              value={dashboardWidgetForm.title || ""}
+              onChange={(e) => setDashboardWidgetForm((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="ex : Tâches terminées"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Type de widget</span>
+            <select
+              className="w-full rounded-2xl border px-4 py-3"
+              value={dashboardWidgetForm.type || "number"}
+              onChange={(e) => setDashboardWidgetForm((prev) => ({ ...prev, type: e.target.value }))}
+            >
+              {DASHBOARD_WIDGET_TYPES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Donnée</span>
+            <select
+              className="w-full rounded-2xl border px-4 py-3"
+              value={dashboardWidgetForm.source || "tasks"}
+              onChange={(e) => setDashboardWidgetForm((prev) => ({ ...prev, source: e.target.value }))}
+            >
+              {DASHBOARD_SOURCES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Filtre</span>
+            <select
+              className="w-full rounded-2xl border px-4 py-3"
+              value={dashboardWidgetForm.filter || "all"}
+              onChange={(e) => setDashboardWidgetForm((prev) => ({ ...prev, filter: e.target.value }))}
+            >
+              {DASHBOARD_FILTERS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+          </label>
+          {(dashboardWidgetForm.type || "number") !== "number" && (
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Grouper par</span>
+              <select
+                className="w-full rounded-2xl border px-4 py-3"
+                value={dashboardWidgetForm.groupBy || "status"}
+                onChange={(e) => setDashboardWidgetForm((prev) => ({ ...prev, groupBy: e.target.value }))}
+              >
+                {DASHBOARD_GROUPS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Couleur</span>
+            <select
+              className="w-full rounded-2xl border px-4 py-3"
+              value={dashboardWidgetForm.tone || "slate"}
+              onChange={(e) => setDashboardWidgetForm((prev) => ({ ...prev, tone: e.target.value }))}
+            >
+              <option value="slate">JAM sobre</option>
+              <option value="blue">Bleu</option>
+              <option value="green">Vert</option>
+              <option value="amber">Orange</option>
+              <option value="red">Rouge</option>
+              <option value="violet">Violet</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Format</span>
+            <select
+              className="w-full rounded-2xl border px-4 py-3"
+              value={dashboardWidgetForm.size || "small"}
+              onChange={(e) => setDashboardWidgetForm((prev) => ({ ...prev, size: e.target.value }))}
+            >
+              <option value="small">Carte simple</option>
+              <option value="wide">Carte large</option>
+            </select>
+          </label>
+        </div>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+          Les widgets se mettent à jour automatiquement avec les données actuelles. Pour un KPI budget, choisis “Projets” + “Budget”.
+        </div>
+      </Modal>
+
       {/* Guided input panel */}
       <GuidedInputPanel
         open={guidedOpen}
         onClose={() => setGuidedOpen(false)}
         allSports={allSports}
         projects={wsProjects}
+        sections={wsClubs}
         onSave={handleGuidedSave}
       />
 
