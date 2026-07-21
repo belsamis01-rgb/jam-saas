@@ -40,6 +40,12 @@ import {
   X,
   EyeOff,
   Layers,
+  Paperclip,
+  FileImage,
+  FileAudio2,
+  Link2,
+  ExternalLink,
+  MessageCircle,
 } from "lucide-react";
 
 const STORAGE_KEY = "jam_saas_v19_clean";
@@ -81,7 +87,13 @@ const DASHBOARD_FILTERS = [
   { id: "highPriority", label: "Haute priorité" },
   { id: "unassigned", label: "Non assignés" },
   { id: "incomplete", label: "À compléter" },
+  { id: "missingEmail", label: "Sans email" },
+  { id: "missingPhone", label: "Sans téléphone" },
+  { id: "missingSection", label: "Sans section" },
+  { id: "missingProfile", label: "Sans profil" },
   { id: "budget", label: "Budget" },
+  { id: "withBudget", label: "Avec budget" },
+  { id: "withoutBudget", label: "Sans budget" },
 ];
 const DASHBOARD_GROUPS = [
   { id: "status", label: "Statut" },
@@ -99,8 +111,89 @@ const DEFAULT_DASHBOARD_WIDGETS = [
   { id: "dw_athletes_section_bar", type: "bar", title: "Athlètes par section", source: "athletes", filter: "all", groupBy: "section", tone: "blue", size: "wide" },
   { id: "dw_tasks_status_donut", type: "donut", title: "Achèvement des tâches", source: "tasks", filter: "all", groupBy: "status", tone: "violet", size: "wide" },
 ];
+const ATTACHMENT_FILE_LIMIT = 4 * 1024 * 1024;
 
-const uid = () => crypto.randomUUID();
+const uid = () => {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return `jam-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+};
+
+const normalizeAttachments = (attachments) => Array.isArray(attachments) ? attachments.filter(Boolean) : [];
+
+const attachmentKindFromFile = (file) => {
+  const type = file?.type || "";
+  const name = (file?.name || "").toLowerCase();
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("audio/")) return "audio";
+  if (type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (
+    type.includes("spreadsheet") ||
+    type.includes("excel") ||
+    name.endsWith(".xls") ||
+    name.endsWith(".xlsx") ||
+    name.endsWith(".csv")
+  ) return "spreadsheet";
+  return "file";
+};
+
+const attachmentKindLabel = (attachment) => {
+  if (attachment.kind === "whatsapp") return "WhatsApp";
+  if (attachment.kind === "image") return "Image";
+  if (attachment.kind === "audio") return "Mémo vocal";
+  if (attachment.kind === "pdf") return "PDF";
+  if (attachment.kind === "spreadsheet") return "Tableur";
+  return "Fichier";
+};
+
+const attachmentIcon = (attachment) => {
+  if (attachment.kind === "whatsapp") return MessageCircle;
+  if (attachment.kind === "image") return FileImage;
+  if (attachment.kind === "audio") return FileAudio2;
+  if (attachment.kind === "spreadsheet") return FileSpreadsheet;
+  return FileText;
+};
+
+const formatFileSize = (size) => {
+  if (!size) return "";
+  if (size < 1024) return `${size} o`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} Ko`;
+  return `${(size / (1024 * 1024)).toFixed(1)} Mo`;
+};
+
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(reader.error || new Error("Lecture impossible"));
+  reader.readAsDataURL(file);
+});
+
+const openAttachmentFile = (attachment) => {
+  if (!attachment?.url) return;
+  if (!attachment.url.startsWith("data:")) {
+    window.open(attachment.url, "_blank", "noopener,noreferrer");
+    return;
+  }
+  const popup = window.open("", "_blank", "noopener,noreferrer");
+  if (popup) {
+    popup.location.href = attachment.url;
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = attachment.url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.download = attachment.name || "piece-jointe";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
 
 const seedProjects = [
   {
@@ -162,7 +255,7 @@ const defaultData = {
   currentWorkspaceId: "ws_jam",
   customFields: [
     { id: uid(), name: "Budget prévisionnel", type: "financier", appliesTo: ["projects"], position: "right" },
-    { id: uid(), name: "Date comité", type: "date", appliesTo: ["projects", "tasks"], position: "right" },
+    { id: uid(), name: "Date de clôture", type: "date", appliesTo: ["projects", "tasks"], position: "right" },
     { id: uid(), name: "Charge estimée", type: "nombre", appliesTo: ["tasks"], position: "right" },
   ],
   convocations: [
@@ -355,6 +448,9 @@ function loadData() {
     return {
       ...defaultData,
       ...parsed,
+      customFields: (parsed.customFields || defaultData.customFields).map((field) =>
+        field.name === "Date comité" ? { ...field, name: "Date de clôture" } : field
+      ),
       workspaces: parsed.workspaces || defaultData.workspaces,
       currentWorkspaceId: parsed.currentWorkspaceId || "ws_jam",
       projects: addWs(parsed.projects || defaultData.projects),
@@ -403,6 +499,26 @@ function priorityDotClass(value) {
   return "bg-slate-400";
 }
 
+function priorityCellClass(value) {
+  if (value === "Critique") return "bg-red-500 text-white";
+  if (value === "Haute") return "bg-orange-500 text-white";
+  if (value === "Moyenne") return "bg-violet-500 text-white";
+  return "bg-slate-200 text-slate-700";
+}
+
+function nextOptionValue(options, currentValue) {
+  const currentIndex = Math.max(0, options.indexOf(currentValue));
+  return options[(currentIndex + 1) % options.length];
+}
+
+function statusVisualValue(value) {
+  if (value === "Actif" || value === "Inscrit" || value === "Brouillon") return "En cours";
+  if (value === "Blessé" || value === "Invité" || value === "À valider") return "En attente";
+  if (value === "Publié" || value === "Validé" || value === "Envoyée") return "Terminé";
+  if (value === "Archivé" || value === "Absent" || value === "À relancer" || value === "À contacter") return "À faire";
+  return value;
+}
+
 function progressTone(value) {
   if (value >= 100) return "bg-green-500";
   if (value >= 70) return "bg-blue-500";
@@ -435,6 +551,13 @@ function clampProgress(value) {
   return Math.max(0, Math.min(100, Number(value) || 0));
 }
 
+function statusProgressValue(status) {
+  if (status === "Terminé") return 100;
+  if (status === "En cours") return 50;
+  if (status === "En attente") return 5;
+  return 0;
+}
+
 function normalizeTaskProgress(progress, status) {
   const raw = clampProgress(progress);
   if (status === "Terminé") return 100;
@@ -451,16 +574,31 @@ function statusFromProgress(progress, currentStatus) {
   return "En cours";
 }
 
-function ownProgress(projectId, tasks) {
+function ownProgress(projectId, tasks, projects = []) {
   const rows = tasks.filter((t) => t.projectId === projectId);
-  if (!rows.length) return 0;
-  return Math.round(rows.reduce((sum, row) => sum + normalizeTaskProgress(row.progress, row.status), 0) / rows.length);
+  if (rows.length) {
+    return Math.round(rows.reduce((sum, row) => sum + normalizeTaskProgress(row.progress, row.status), 0) / rows.length);
+  }
+
+  const directChildren = projects.filter((project) => project.parentId === projectId);
+  if (directChildren.length) {
+    return Math.round(
+      directChildren.reduce((sum, child) => sum + consolidatedProgress(child.id, tasks, projects), 0) / directChildren.length
+    );
+  }
+
+  const project = projects.find((item) => item.id === projectId);
+  return statusProgressValue(project?.status);
 }
 
 function consolidatedProgress(projectId, tasks, projects) {
   const ids = descendants(projectId, projects);
   const rows = tasks.filter((t) => ids.has(t.projectId));
-  if (!rows.length) return 0;
+  if (!rows.length) {
+    const scopedProjects = projects.filter((project) => ids.has(project.id));
+    if (!scopedProjects.length) return 0;
+    return Math.round(scopedProjects.reduce((sum, project) => sum + statusProgressValue(project.status), 0) / scopedProjects.length);
+  }
   return Math.round(rows.reduce((sum, row) => sum + normalizeTaskProgress(row.progress, row.status), 0) / rows.length);
 }
 
@@ -744,22 +882,29 @@ function makeSportId(name) {
     .replace(/^_+|_+$/g, "");
 }
 
+function defaultFinancialValues(fields = []) {
+  return fields.reduce((acc, field) => {
+    if (field.type === "financier") acc[field.id] = 0;
+    return acc;
+  }, {});
+}
+
 function Card({ children, className = "", ...props }) {
-  return <div className={`bg-white rounded-2xl border border-slate-200 shadow-sm ${className}`} {...props}>{children}</div>;
+  return <div className={`rounded-[28px] border border-slate-200/80 bg-white shadow-[0_12px_30px_-18px_rgba(15,23,42,0.22)] ${className}`} {...props}>{children}</div>;
 }
 
 function Badge({ children, className = "" }) {
-  return <span className={`text-xs px-2 py-1 rounded-full border ${className}`}>{children}</span>;
+  return <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}>{children}</span>;
 }
 
 function ProgressBar({ value, label }) {
   return (
-    <div>
-      <div className="flex justify-between text-xs text-slate-500 mb-1">
+    <div className="space-y-1.5">
+      <div className="flex justify-between text-[11px] font-semibold uppercase tracking-wide text-slate-400">
         <span>{label}</span>
-        <span>{value}%</span>
+        <span className="text-slate-600">{value}%</span>
       </div>
-      <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
+      <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
         <div className={`h-full rounded-full ${progressTone(value)}`} style={{ width: `${value}%` }} />
       </div>
     </div>
@@ -768,13 +913,13 @@ function ProgressBar({ value, label }) {
 
 function ViewToggle({ options, value, onChange }) {
   return (
-    <div className="flex rounded-2xl border bg-white p-1 gap-1">
+    <div className="inline-flex gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
       {options.map(({ id, label, Icon }) => (
         <button
           key={id}
           type="button"
           onClick={() => onChange(id)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${value === id ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+          className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors ${value === id ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"}`}
         >
           <Icon className="w-4 h-4" /> {label}
         </button>
@@ -875,15 +1020,15 @@ function StatCard({ title, value, subtitle, Icon, tone = "slate", onClick }) {
   };
   const content = (
     <>
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm text-slate-500">{title}</p>
-          <p className="text-2xl font-semibold mt-2 truncate">{value}</p>
-          <p className="text-xs text-slate-500 mt-2">{subtitle}</p>
+          <p className="text-sm font-semibold text-slate-500">{title}</p>
+          <p className="mt-3 truncate text-4xl font-bold tracking-tight text-slate-950">{value}</p>
+          <p className="mt-2 text-sm text-slate-500">{subtitle}</p>
         </div>
-        <div className={`p-2.5 rounded-xl ${tones[tone] || tones.slate}`}><Icon className="w-5 h-5" /></div>
+        <div className={`rounded-2xl p-3 ${tones[tone] || tones.slate}`}><Icon className="w-5 h-5" /></div>
       </div>
-      {onClick && <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Ouvrir</p>}
+      {onClick && <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ouvrir le tableau</p>}
     </>
   );
   if (onClick) {
@@ -891,14 +1036,14 @@ function StatCard({ title, value, subtitle, Icon, tone = "slate", onClick }) {
       <button
         type="button"
         onClick={onClick}
-        className="group w-full text-left bg-white rounded-2xl border border-slate-200 shadow-sm p-4 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900/20"
+        className="group w-full rounded-[28px] border border-slate-200/80 bg-white p-5 text-left shadow-[0_12px_30px_-18px_rgba(15,23,42,0.22)] transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900/20"
       >
         {content}
       </button>
     );
   }
   return (
-    <Card className="p-4">
+    <Card className="p-5">
       {content}
     </Card>
   );
@@ -979,7 +1124,7 @@ function CustomFieldsEditor({ fields, values, onChange }) {
   );
 }
 
-function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuickTask, onNewSubProject, onEditProject, requestDelete, onDuplicate, projectCustomFields }) {
+function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuickTask, onNewSubProject, onEditProject, onEditTask, onArchiveProject, requestDelete, onDuplicate, projectCustomFields, onProjectStatusChange, onProjectPriorityChange, onTaskStatusChange, onTaskPriorityChange, onTaskProgressChange, onOpenAttachments }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -990,11 +1135,80 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
     return () => document.removeEventListener("mousedown", handler);
   }, [menuOpen]);
 
-  const own = node.computedOwnProgress ?? ownProgress(node.id, tasks);
+  const own = node.computedOwnProgress ?? ownProgress(node.id, tasks, projects);
   const total = node.computedTotalProgress ?? consolidatedProgress(node.id, tasks, projects);
   const isOpen = expanded[node.id] ?? true;
   const childCount = node.children.length;
+  const projectScope = descendants(node.id, projects);
   const directTasks = tasks.filter((t) => t.projectId === node.id);
+  const inheritedTasks = tasks.filter((t) => projectScope.has(t.projectId) && t.projectId !== node.id);
+  const scopeTasks = [...directTasks, ...inheritedTasks];
+
+  const renderTaskItem = (task, showProjectLabel = false) => {
+    const prog = normalizeTaskProgress(task.progress, task.status);
+    const sourceProject = projects.find((project) => project.id === task.projectId);
+    return (
+      <div key={task.id} className="rounded-xl border bg-white p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <CheckCircle2 className={`w-4 h-4 shrink-0 ${task.status === "Terminé" ? "text-green-500" : "text-slate-300"}`} />
+            <div className="min-w-0">
+              <button type="button" onClick={() => onEditTask?.(task)} className="truncate text-left text-sm font-medium text-slate-900 hover:underline">{task.title}</button>
+              {showProjectLabel && sourceProject && (
+                <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{sourceProject.name}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => onTaskStatusChange?.(task.id, nextOptionValue(STATUS_OPTIONS, task.status))}
+              className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", task.status)}`}
+              title="Cliquer pour changer le statut"
+            >
+              {task.status}
+            </button>
+            <button
+              type="button"
+              onClick={() => onTaskPriorityChange?.(task.id, nextOptionValue(PRIORITY_OPTIONS, task.priority))}
+              className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", task.priority)}`}
+              title="Cliquer pour changer la priorité"
+            >
+              {task.priority}
+            </button>
+          </div>
+        </div>
+        <div className="mt-2 flex items-center gap-3 pl-6">
+          <span className="text-xs text-slate-500">{task.assignee || "Non assigné"}</span>
+          {task.endDate && <span className="text-xs text-slate-400">· {task.endDate}</span>}
+        </div>
+        <div className="mt-2 pl-6">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onTaskProgressChange?.(task.id, prog - 10)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
+              title="Diminuer la progression"
+            >
+              -
+            </button>
+            <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+              <div className={`h-full rounded-full ${progressTone(prog)}`} style={{ width: `${prog}%` }} />
+            </div>
+            <button
+              type="button"
+              onClick={() => onTaskProgressChange?.(task.id, prog + 10)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
+              title="Augmenter la progression"
+            >
+              +
+            </button>
+            <span className="text-xs font-bold text-slate-600 w-7 text-right">{prog}%</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="border rounded-2xl p-4 bg-white shadow-sm">
@@ -1004,14 +1218,54 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
             {childCount ? (isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />) : <div className="w-4" />}
           </button>
           <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-semibold truncate">{node.name}</h3>
-              <Badge>Niv. {levelOf(node.id, projects)}</Badge>
-              <Badge className={badgeClass("status", node.status)}>{node.status}</Badge>
-              <Badge className={badgeClass("priority", node.priority)}>{node.priority}</Badge>
-              {node.sportName && <Badge>{node.sportName}</Badge>}
+            <div className="flex gap-3">
+              {node.coverImage ? (
+                <button
+                  type="button"
+                  onClick={() => onEditProject?.(node)}
+                  className="shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                  title="Modifier le projet"
+                >
+                  <img src={node.coverImage} alt="" className="h-20 w-28 object-cover" />
+                </button>
+              ) : null}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold truncate">{node.name}</h3>
+                  <button
+                    type="button"
+                    onClick={() => onProjectStatusChange?.(node.id, nextOptionValue(STATUS_OPTIONS, node.status))}
+                    className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", node.status)}`}
+                    title="Cliquer pour changer le statut"
+                  >
+                    {node.status}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onProjectPriorityChange?.(node.id, nextOptionValue(PRIORITY_OPTIONS, node.priority))}
+                    className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", node.priority)}`}
+                    title="Cliquer pour changer la priorité"
+                  >
+                    {node.priority}
+                  </button>
+                  {node.sportName && <Badge>{node.sportName}</Badge>}
+                  {normalizeAttachments(node.attachments).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAttachments?.(`Pièces jointes · ${node.name}`, node.attachments)}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                      title="Voir les pièces jointes"
+                    >
+                      <Paperclip className="h-3 w-3" /> {normalizeAttachments(node.attachments).length}
+                    </button>
+                  )}
+                  <Badge className={node.visibility === "Non" ? "bg-slate-100 text-slate-600 border-slate-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}>
+                    Visible par tous : {node.visibility || "Oui"}
+                  </Badge>
+                </div>
+                {node.description && <p className="text-sm text-slate-500 mt-1">{node.description}</p>}
+              </div>
             </div>
-            {node.description && <p className="text-sm text-slate-500 mt-1">{node.description}</p>}
             <div className="grid md:grid-cols-2 gap-4 mt-3 max-w-3xl">
               <ProgressBar value={own} label="Progression directe" />
               <ProgressBar value={total} label="Progression consolidée" />
@@ -1020,8 +1274,8 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
               {node.owner && <span>Responsable : {node.owner}</span>}
               {node.startDate && <span>Début : {node.startDate}</span>}
               {node.endDate && <span>Fin : {node.endDate}</span>}
-              <span>Sous-projets : {childCount}</span>
-              <span>Tâches : {directTasks.length}</span>
+              <span>Axes analytiques : {childCount}</span>
+              <span>Tâches du périmètre : {scopeTasks.length}</span>
             </div>
 
             {projectCustomFields.length > 0 && (
@@ -1032,40 +1286,24 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
               </div>
             )}
 
-            {directTasks.length > 0 && (
+            {scopeTasks.length > 0 && (
               <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-200 p-3">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Tâches ({directTasks.length})</p>
-                <div className="space-y-2">
-                  {directTasks.map((task) => {
-                    const prog = normalizeTaskProgress(task.progress, task.status);
-                    return (
-                      <div key={task.id} className="rounded-xl border bg-white p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <CheckCircle2 className={`w-4 h-4 shrink-0 ${task.status === "Terminé" ? "text-green-500" : "text-slate-300"}`} />
-                            <p className="text-sm font-medium text-slate-900 truncate">{task.title}</p>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <Badge className={badgeClass("status", task.status)}>{task.status}</Badge>
-                            <Badge className={badgeClass("priority", task.priority)}>{task.priority}</Badge>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 mt-2 pl-6">
-                          <span className="text-xs text-slate-500">{task.assignee || "Non assigné"}</span>
-                          {task.endDate && <span className="text-xs text-slate-400">· {task.endDate}</span>}
-                        </div>
-                        <div className="mt-2 pl-6">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
-                              <div className={`h-full rounded-full ${progressTone(prog)}`} style={{ width: `${prog}%` }} />
-                            </div>
-                            <span className="text-xs font-bold text-slate-600 w-7 text-right">{prog}%</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                {directTasks.length > 0 && (
+                  <>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Tâches directes ({directTasks.length})</p>
+                    <div className="space-y-2">
+                      {directTasks.map((task) => renderTaskItem(task))}
+                    </div>
+                  </>
+                )}
+                {inheritedTasks.length > 0 && (
+                  <>
+                    <p className={`text-xs font-semibold uppercase tracking-wide text-slate-500 ${directTasks.length > 0 ? "mt-4 mb-2" : "mb-2"}`}>Tâches des axes analytiques ({inheritedTasks.length})</p>
+                    <div className="space-y-2">
+                      {inheritedTasks.map((task) => renderTaskItem(task, true))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1088,10 +1326,13 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
                 <Plus className="w-4 h-4 text-slate-400" /> Ajouter une tâche
               </button>
               <button onClick={() => { onNewSubProject(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
-                <FolderKanban className="w-4 h-4 text-slate-400" /> Créer un sous-projet
+                <FolderKanban className="w-4 h-4 text-slate-400" /> Créer un axe analytique
               </button>
               <button onClick={() => { onDuplicate(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
                 <Copy className="w-4 h-4 text-slate-400" /> Dupliquer
+              </button>
+              <button onClick={() => { onArchiveProject?.(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 text-amber-700 flex items-center gap-2">
+                <Library className="w-4 h-4" /> Archiver
               </button>
               <div className="border-t my-1" />
               <button onClick={() => { requestDelete("project", node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 text-red-600 flex items-center gap-2">
@@ -1104,18 +1345,18 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
 
       {isOpen && childCount > 0 && (
         <div className="pl-8 mt-4 border-l-2 border-slate-100 space-y-3">
-                <ProjectTree nodes={node.children} tasks={tasks} projects={projects} expanded={expanded} setExpanded={setExpanded} onQuickTask={onQuickTask} onNewSubProject={onNewSubProject} onEditProject={onEditProject} requestDelete={requestDelete} onDuplicate={onDuplicate} projectCustomFields={projectCustomFields} />
+                <ProjectTree nodes={node.children} tasks={tasks} projects={projects} expanded={expanded} setExpanded={setExpanded} onQuickTask={onQuickTask} onNewSubProject={onNewSubProject} onEditProject={onEditProject} onEditTask={onEditTask} onArchiveProject={onArchiveProject} requestDelete={requestDelete} onDuplicate={onDuplicate} projectCustomFields={projectCustomFields} onProjectStatusChange={onProjectStatusChange} onProjectPriorityChange={onProjectPriorityChange} onTaskStatusChange={onTaskStatusChange} onTaskPriorityChange={onTaskPriorityChange} onTaskProgressChange={onTaskProgressChange} onOpenAttachments={onOpenAttachments} />
         </div>
       )}
     </div>
   );
 }
 
-function ProjectTree({ nodes, tasks, projects, expanded, setExpanded, onQuickTask, onNewSubProject, onEditProject, requestDelete, onDuplicate, projectCustomFields }) {
+function ProjectTree({ nodes, tasks, projects, expanded, setExpanded, onQuickTask, onNewSubProject, onEditProject, onEditTask, onArchiveProject, requestDelete, onDuplicate, projectCustomFields, onProjectStatusChange, onProjectPriorityChange, onTaskStatusChange, onTaskPriorityChange, onTaskProgressChange, onOpenAttachments }) {
   return (
     <div className="space-y-3">
       {nodes.map((node) => (
-        <ProjectTreeNode key={node.id} node={node} tasks={tasks} projects={projects} expanded={expanded} setExpanded={setExpanded} onQuickTask={onQuickTask} onNewSubProject={onNewSubProject} onEditProject={onEditProject} requestDelete={requestDelete} onDuplicate={onDuplicate} projectCustomFields={projectCustomFields} />
+        <ProjectTreeNode key={node.id} node={node} tasks={tasks} projects={projects} expanded={expanded} setExpanded={setExpanded} onQuickTask={onQuickTask} onNewSubProject={onNewSubProject} onEditProject={onEditProject} onEditTask={onEditTask} onArchiveProject={onArchiveProject} requestDelete={requestDelete} onDuplicate={onDuplicate} projectCustomFields={projectCustomFields} onProjectStatusChange={onProjectStatusChange} onProjectPriorityChange={onProjectPriorityChange} onTaskStatusChange={onTaskStatusChange} onTaskPriorityChange={onTaskPriorityChange} onTaskProgressChange={onTaskProgressChange} onOpenAttachments={onOpenAttachments} />
       ))}
     </div>
   );
@@ -1393,7 +1634,7 @@ function ImportPreviewModal({ preview, onClose, onConfirm, onTabChange }) {
 }
 
 // ===== Generic flat EntityTable (Tasks, Athletes, Clubs, Documents) =====
-function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDelete, nameKey = "name", emptyLabel = "Aucun élément.", customFields = [] }) {
+function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDelete, onArchive, onUnarchive, nameKey = "name", emptyLabel = "Aucun élément.", customFields = [], onStatusChange, onPriorityChange, onProgressChange, onFieldChange, onOpenAttachments }) {
   const [openColMenu, setOpenColMenu] = useState(null);
   const [submenu, setSubmenu] = useState(null);
   const [addColModal, setAddColModal] = useState(null);
@@ -1403,6 +1644,18 @@ function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDele
   const sortCol = cfg.sortCol || nameKey;
   const sortDir = cfg.sortDir || "asc";
   const closeMenu = () => { setOpenColMenu(null); setSubmenu(null); };
+  const cycleStatus = (row) => {
+    if (!onStatusChange) return;
+    const statusCol = allCols.find((col) => col.key === "status");
+    const options = statusCol?.options || STATUS_OPTIONS;
+    onStatusChange(row.id, nextOptionValue(options, row.status));
+  };
+  const cyclePriority = (row) => {
+    if (!onPriorityChange) return;
+    const priorityCol = allCols.find((col) => col.key === "priority");
+    const options = priorityCol?.options || PRIORITY_OPTIONS;
+    onPriorityChange(row.id, nextOptionValue(options, row.priority));
+  };
 
   // Build cols
   const customCols = [
@@ -1484,10 +1737,136 @@ function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDele
   };
 
   const renderCell = (row, col) => {
-    if (col.render) return col.render(row);
+    if (col.key === "priority" && onPriorityChange) {
+      const v = valueFor(row, col);
+      return (
+        <button
+          type="button"
+          onClick={() => cyclePriority(row)}
+          className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", v)}`}
+          title="Cliquer pour changer la priorité"
+        >
+          {v || "—"}
+        </button>
+      );
+    }
     const v = valueFor(row, col);
+    const rawValue = col.builtin ? row[col.key] : row.customFieldValues?.[col.key];
+    if (col.key === "progress" && onProgressChange) {
+      const progressValue = Number(v) || 0;
+      return (
+        <div className="flex min-w-52 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onProgressChange(row.id, progressValue - 10)}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
+            title="Diminuer la progression"
+          >
+            -
+          </button>
+          <div className="flex-1 h-2 overflow-hidden rounded-full bg-slate-200">
+            <div className={`h-full rounded-full ${progressTone(progressValue)}`} style={{ width: `${progressValue}%` }} />
+          </div>
+          <button
+            type="button"
+            onClick={() => onProgressChange(row.id, progressValue + 10)}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
+            title="Augmenter la progression"
+          >
+            +
+          </button>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            value={progressValue}
+            onChange={(event) => onProgressChange(row.id, Number(event.target.value))}
+            className="w-16 rounded-xl border border-slate-200 bg-white px-2 py-1 text-right text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+            title="Saisir une progression"
+          />
+          <span className="text-xs font-bold text-slate-500">%</span>
+        </div>
+      );
+    }
+    if (col.key === "attachmentsCount") {
+      const count = normalizeAttachments(row.attachments).length;
+      return count > 0 ? (
+        <button
+          type="button"
+          onClick={() => onOpenAttachments?.(`Pièces jointes · ${row[nameKey] || row.title || row.name || "élément"}`, row.attachments)}
+          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+          title="Voir les pièces jointes"
+        >
+          <Paperclip className="h-3.5 w-3.5 text-slate-500" />
+          {count}
+        </button>
+      ) : <span className="text-slate-300">—</span>;
+    }
+    if (col.quickEdit && onFieldChange) {
+      if (col.quickEdit === "text") {
+        return (
+          <input
+            list={col.type === "personne" ? "people-options" : undefined}
+            type="text"
+            value={rawValue || ""}
+            onChange={(event) => onFieldChange(row.id, col.key, event.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+            placeholder={col.placeholder || "—"}
+          />
+        );
+      }
+      if (col.quickEdit === "date") {
+        return (
+          <input
+            type="date"
+            value={rawValue || ""}
+            onChange={(event) => onFieldChange(row.id, col.key, event.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          />
+        );
+      }
+      if (col.quickEdit === "select") {
+        const options = col.editOptions?.(row) || [];
+        return (
+          <select
+            value={rawValue || ""}
+            onChange={(event) => onFieldChange(row.id, col.key, event.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          >
+            <option value="">{col.placeholder || "—"}</option>
+            {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        );
+      }
+    }
+    if (col.key === "status" && v && col.options) {
+      const toneValue = col.badgeTone ? col.badgeTone(row) : statusVisualValue(v);
+      return onStatusChange ? (
+        <button
+          type="button"
+          onClick={() => cycleStatus(row)}
+          className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", toneValue)}`}
+          title="Cliquer pour changer le statut"
+        >
+          {v}
+        </button>
+      ) : <Badge className={badgeClass("status", toneValue)}>{v}</Badge>;
+    }
+    if (col.render) return col.render(row);
     if (col.type === "case_a_cocher") return <span>{v ? "✓" : "—"}</span>;
     if (col.type === "financier" || col.type === "nombre" || col.type === "pourcentage") return <span className="text-slate-700">{formatCustomFieldValue(col.type, v)}</span>;
+    if (col.key === "priority" && v && col.options) {
+      return onPriorityChange ? (
+        <button
+          type="button"
+          onClick={() => cyclePriority(row)}
+          className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", v)}`}
+          title="Cliquer pour changer la priorité"
+        >
+          {v}
+        </button>
+      ) : <Badge className={badgeClass("priority", v)}>{v}</Badge>;
+    }
     if (col.type === "statut" && v && col.options) return <Badge className={badgeClass("status", v)}>{v}</Badge>;
     return <span className="text-slate-600">{v || "—"}</span>;
   };
@@ -1644,7 +2023,18 @@ function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDele
                     {visibleCols.map((col) => (
                       <td key={col.key} className="py-3 px-3">
                         {col.key === nameKey ? (
-                          <p className="font-semibold text-slate-900">{row[nameKey] || row.title || "—"}</p>
+                          onEdit ? (
+                            <button
+                              type="button"
+                              onClick={() => onEdit(row)}
+                              className="text-left font-semibold text-slate-900 hover:underline"
+                              title="Ouvrir la fiche"
+                            >
+                              {row[nameKey] || row.title || "—"}
+                            </button>
+                          ) : (
+                            <p className="font-semibold text-slate-900">{row[nameKey] || row.title || "—"}</p>
+                          )
                         ) : renderCell(row, col)}
                       </td>
                     ))}
@@ -1652,6 +2042,8 @@ function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDele
                     <td className="py-3 px-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex gap-1.5 justify-end">
                         {onEdit && <button onClick={() => onEdit(row)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600" title="Modifier"><Edit3 className="w-3.5 h-3.5" /></button>}
+                        {onArchive && <button onClick={() => onArchive(row)} className="p-1.5 rounded-lg hover:bg-amber-100 text-amber-700" title="Archiver"><Library className="w-3.5 h-3.5" /></button>}
+                        {onUnarchive && <button onClick={() => onUnarchive(row)} className="p-1.5 rounded-lg hover:bg-emerald-100 text-emerald-700" title="Désarchiver"><Library className="w-3.5 h-3.5" /></button>}
                         {onDelete && <button onClick={() => onDelete(row)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>}
                       </div>
                     </td>
@@ -1695,7 +2087,7 @@ function StatusToggle({ options, value, onChange }) {
   );
 }
 
-function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onNewSubProject, config, onConfigChange, customFields = [] }) {
+function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditTask, onArchiveProject, requestDelete, onQuickTask, onNewSubProject, config, onConfigChange, customFields = [], onStatusChange, onPriorityChange, onTaskStatusChange, onTaskPriorityChange, onTaskProgressChange, onProjectFieldChange, onOpenAttachments }) {
   const [expandedRows, setExpandedRows] = useState({});
   const [openColMenu, setOpenColMenu] = useState(null);
   const [submenu, setSubmenu] = useState(null); // 'sort' | 'type'
@@ -1716,17 +2108,36 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
     return next;
   });
   const clearSelection = () => setSelectedIds(new Set());
+  const cycleProjectStatus = (project) => {
+    if (!onStatusChange) return;
+    onStatusChange(project.id, nextOptionValue(STATUS_OPTIONS, project.status));
+  };
+  const cycleProjectPriority = (project) => {
+    if (!onPriorityChange) return;
+    onPriorityChange(project.id, nextOptionValue(PRIORITY_OPTIONS, project.priority));
+  };
+  const cycleTaskStatus = (task) => {
+    if (!onTaskStatusChange) return;
+    onTaskStatusChange(task.id, nextOptionValue(STATUS_OPTIONS, task.status));
+  };
+  const cycleTaskPriority = (task) => {
+    if (!onTaskPriorityChange) return;
+    onTaskPriorityChange(task.id, nextOptionValue(PRIORITY_OPTIONS, task.priority));
+  };
 
   const handleSort = (key, dir) => { setCfg({ sortCol: key, sortDir: dir }); closeMenu(); };
 
   // ===== Column model =====
   const builtinCols = [
     { key: "name", label: "Projet", type: "texte", builtin: true, sortable: true },
+    { key: "sportName", label: "Sport", type: "texte", builtin: true, sortable: true },
     { key: "status", label: "Statut", type: "statut", builtin: true, sortable: true, options: STATUS_OPTIONS },
     { key: "priority", label: "Priorité", type: "statut", builtin: true, sortable: true, options: PRIORITY_OPTIONS },
+    { key: "attachmentsCount", label: "PJ", type: "nombre", builtin: true, sortable: true, accessor: (project) => normalizeAttachments(project.attachments).length },
     { key: "computedTotalProgress", label: "Avancement", type: "nombre", builtin: true, sortable: true },
     { key: "tasksCount", label: "Tâches", type: "nombre", builtin: true, sortable: false },
     { key: "owner", label: "Responsable", type: "personne", builtin: true, sortable: true },
+    { key: "visibility", label: "Visible", type: "statut", builtin: true, sortable: true, options: ["Oui", "Non"] },
     { key: "endDate", label: "Échéance", type: "date", builtin: true, sortable: true },
   ];
   const customCols = [
@@ -1747,11 +2158,13 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
   }
   // hide
   const visibleCols = allCols.filter((c) => !(cfg.hiddenCols || []).includes(c.key));
+  const scopedTaskCountFor = (projectId) => tasks.filter((task) => descendants(projectId, allProjects).has(task.projectId)).length;
+  const directTaskCountFor = (projectId) => tasks.filter((task) => task.projectId === projectId).length;
 
   // ===== Filtering =====
   const valueFor = (project, col) => {
     if (col.builtin) {
-      if (col.key === "tasksCount") return tasks.filter((t) => t.projectId === project.id).length;
+      if (col.key === "tasksCount") return scopedTaskCountFor(project.id);
       return project[col.key];
     }
     return project.customFieldValues?.[col.key];
@@ -1779,19 +2192,33 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
   const roots = filtered.filter((p) => !p.parentId || !filteredIds.has(p.parentId)).sort(sortFn);
   const activeFilters = Object.entries(cfg.filters || {}).filter(([_, v]) => v && v.value !== "" && v.value !== undefined && v.value !== null);
   const completedCount = filtered.filter((project) => project.status === "Terminé").length;
-  const visibleTaskCount = filtered.reduce((sum, project) => sum + tasks.filter((task) => task.projectId === project.id).length, 0);
+  const visibleTaskCount = filtered.reduce((sum, project) => sum + scopedTaskCountFor(project.id), 0);
   const selectedCount = selectedIds.size;
 
   // ===== Cell renderer =====
   const renderCell = (project, col) => {
     const v = valueFor(project, col);
     if (col.builtin && col.key === "name") return null; // handled in special name cell
-    if (col.builtin && col.key === "status") return <span className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold ${statusCellClass(project.status)}`}>{project.status}</span>;
+    if (col.builtin && col.key === "status") return (
+      <button
+        type="button"
+        onClick={() => cycleProjectStatus(project)}
+        className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold transition hover:brightness-95 ${statusCellClass(project.status)}`}
+        title="Cliquer pour changer le statut"
+      >
+        {project.status}
+      </button>
+    );
     if (col.builtin && col.key === "priority") return (
-      <span className="inline-flex items-center gap-2 text-slate-700">
+      <button
+        type="button"
+        onClick={() => cycleProjectPriority(project)}
+        className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition hover:brightness-95 ${priorityCellClass(project.priority)}`}
+        title="Cliquer pour changer la priorité"
+      >
         <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClass(project.priority)}`} />
-        <span className="text-sm font-medium">{project.priority || "—"}</span>
-      </span>
+        <span>{project.priority || "—"}</span>
+      </button>
     );
     if (col.builtin && col.key === "computedTotalProgress") return (
       <div className="flex items-center gap-2 min-w-32">
@@ -1802,11 +2229,76 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
       </div>
     );
     if (col.builtin && col.key === "tasksCount") {
-      const n = tasks.filter((t) => t.projectId === project.id).length;
-      return <span className="text-slate-600"><span className="font-medium text-slate-800">{n}</span> tâche{n > 1 ? "s" : ""}</span>;
+      const directCount = directTaskCountFor(project.id);
+      const scopedCount = scopedTaskCountFor(project.id);
+      return (
+        <div className="space-y-1">
+          <span className="block text-slate-600"><span className="font-medium text-slate-800">{scopedCount}</span> tâche{scopedCount > 1 ? "s" : ""}</span>
+          <span className="block text-[11px] text-slate-400">{directCount} directe{directCount > 1 ? "s" : ""}</span>
+        </div>
+      );
+    }
+    if (col.builtin && col.key === "sportName") return <span className="text-slate-700">{project.sportName || "—"}</span>;
+    if (col.builtin && col.key === "visibility") {
+      return (
+        <button
+          type="button"
+          onClick={() => onProjectFieldChange?.(project.id, "visibility", project.visibility === "Non" ? "Oui" : "Non")}
+          className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${project.visibility === "Non" ? "border-slate-200 bg-slate-100 text-slate-600" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}
+          title="Cliquer pour changer la visibilité"
+        >
+          {project.visibility || "Oui"}
+        </button>
+      );
+    }
+    if (col.builtin && col.key === "owner") {
+      return (
+        <input
+          list="people-options"
+          type="text"
+          value={project.owner || ""}
+          onChange={(event) => onProjectFieldChange?.(project.id, "owner", event.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          placeholder="Responsable"
+        />
+      );
+    }
+    if (col.builtin && col.key === "endDate") {
+      return (
+        <input
+          type="date"
+          value={project.endDate || ""}
+          onChange={(event) => onProjectFieldChange?.(project.id, "endDate", event.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+        />
+      );
+    }
+    if (col.builtin && col.key === "attachmentsCount") {
+      const count = normalizeAttachments(project.attachments).length;
+      return count > 0 ? (
+        <button
+          type="button"
+          onClick={() => onOpenAttachments?.(`Pièces jointes · ${project.name}`, project.attachments)}
+          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+          title="Voir les pièces jointes"
+        >
+          <Paperclip className="h-3.5 w-3.5 text-slate-500" />
+          {count}
+        </button>
+      ) : <span className="text-slate-300">—</span>;
     }
     if (col.type === "case_a_cocher") return <span>{v ? "✓" : "—"}</span>;
     if (col.type === "financier" || col.type === "nombre" || col.type === "pourcentage") return <span className="text-slate-700">{formatCustomFieldValue(col.type, v)}</span>;
+    if (col.key === "status" && v) return (
+      <button
+        type="button"
+        onClick={() => cycleProjectStatus(project)}
+        className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold transition hover:brightness-95 ${statusCellClass(v)}`}
+        title="Cliquer pour changer le statut"
+      >
+        {v}
+      </button>
+    );
     if (col.type === "statut" && v) return <span className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold ${statusCellClass(v)}`}>{v}</span>;
     return <span className="text-slate-600">{v || "—"}</span>;
   };
@@ -1948,6 +2440,8 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
     const hasChildren = childProjects.length > 0 || projectTasks.length > 0;
     const isOpen = expandedRows[project.id];
     const indentPx = depth * 24;
+    const directTaskCount = projectTasks.length;
+    const scopedTaskCount = scopedTaskCountFor(project.id);
     const rows = [];
 
     rows.push(
@@ -1969,11 +2463,33 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
             <div className="relative" style={{ paddingLeft: indentPx + 10 }}>
               <span className={`absolute left-0 top-1 h-8 w-1 rounded-full ${project.status === "Terminé" ? "bg-emerald-500" : project.status === "En cours" ? "bg-blue-500" : project.status === "En attente" ? "bg-amber-400" : "bg-slate-300"}`} />
               <div className="flex items-center gap-2">
+                {project.coverImage && <img src={project.coverImage} alt="" className="h-10 w-10 rounded-xl object-cover border border-slate-200" />}
                 {depth > 0 && <span className="text-slate-300 text-xs">↳</span>}
                 <p className="font-semibold text-slate-900">{project.name}</p>
-                {childProjects.length > 0 && <span className="text-xs text-slate-400">({childProjects.length} sous-projet{childProjects.length > 1 ? "s" : ""})</span>}
+                {normalizeAttachments(project.attachments).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={(event) => { event.stopPropagation(); openAttachmentViewer(`Pièces jointes · ${project.name}`, project.attachments); }}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-100"
+                    title="Voir les pièces jointes"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
+                )}
+                <Badge className={depth === 0 ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-violet-50 text-violet-700 border-violet-200"}>
+                  {depth === 0 ? "Projet" : "Axe analytique"}
+                </Badge>
+                <Badge className={project.visibility === "Non" ? "bg-slate-100 text-slate-600 border-slate-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}>
+                  {project.visibility || "Oui"}
+                </Badge>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">{project.sportName || "Sport non renseigné"}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                <span>{project.sportName || "Sport non renseigné"}</span>
+                {childProjects.length > 0 && <span>{childProjects.length} axe{childProjects.length > 1 ? "s" : ""} analytique{childProjects.length > 1 ? "s" : ""}</span>}
+                <span>{directTaskCount} tâche{directTaskCount > 1 ? "s" : ""} directe{directTaskCount > 1 ? "s" : ""}</span>
+                <span>{scopedTaskCount} sur le périmètre</span>
+                {normalizeAttachments(project.attachments).length > 0 && <span>{normalizeAttachments(project.attachments).length} pièce{normalizeAttachments(project.attachments).length > 1 ? "s jointes" : " jointe"}</span>}
+              </div>
             </div>
           </td>
         )}
@@ -1985,7 +2501,8 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
           <div className="flex gap-1.5 justify-end opacity-70 group-hover:opacity-100">
             <button onClick={() => onEdit(project)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600" title="Modifier"><Edit3 className="w-3.5 h-3.5" /></button>
             <button onClick={() => onQuickTask(project.id)} className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-700" title="Ajouter tâche"><Plus className="w-3.5 h-3.5" /></button>
-            <button onClick={() => onNewSubProject(project)} className="p-1.5 rounded-lg hover:bg-violet-100 text-violet-700" title="Créer un sous-projet"><FolderKanban className="w-3.5 h-3.5" /></button>
+            <button onClick={() => onNewSubProject(project)} className="p-1.5 rounded-lg hover:bg-violet-100 text-violet-700" title="Créer un axe analytique"><FolderKanban className="w-3.5 h-3.5" /></button>
+            {onArchiveProject && <button onClick={() => onArchiveProject(project)} className="p-1.5 rounded-lg hover:bg-amber-100 text-amber-700" title="Archiver"><Library className="w-3.5 h-3.5" /></button>}
             <button onClick={() => requestDelete("project", project)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
           </div>
         </td>
@@ -2005,28 +2522,70 @@ function ProjectTable({ projects, tasks, onEdit, requestDelete, onQuickTask, onN
                 <div style={{ paddingLeft: indentPx + 24 }}>
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${task.status === "Terminé" ? "text-green-500" : "text-slate-300"}`} />
-                    <span className="text-slate-800 font-medium">{task.title}</span>
+                    <button type="button" onClick={() => onEditTask?.(task)} className="text-left text-slate-800 font-medium hover:underline">{task.title}</button>
+                    {normalizeAttachments(task.attachments).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => openAttachmentViewer(`Pièces jointes · ${task.title}`, task.attachments)}
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                        title="Voir les pièces jointes"
+                      >
+                        <Paperclip className="h-3 w-3" /> {normalizeAttachments(task.attachments).length}
+                      </button>
+                    )}
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5 pl-5">{task.assignee || "Non assigné"} · {task.endDate || "Sans échéance"}</p>
                 </div>
               </td>
             )}
             {otherCols.map((col) => {
-              if (col.key === "status") return <td key={col.key} className="py-2.5 px-3 border-r border-slate-200"><span className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold ${statusCellClass(task.status)}`}>{task.status}</span></td>;
+              if (col.key === "status") return (
+                <td key={col.key} className="py-2.5 px-3 border-r border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => cycleTaskStatus(task)}
+                    className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold transition hover:brightness-95 ${statusCellClass(task.status)}`}
+                    title="Cliquer pour changer le statut"
+                  >
+                    {task.status}
+                  </button>
+                </td>
+              );
               if (col.key === "priority") return (
                 <td key={col.key} className="py-2.5 px-3 border-r border-slate-200">
-                  <span className="inline-flex items-center gap-2 text-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => cycleTaskPriority(task)}
+                    className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition hover:brightness-95 ${priorityCellClass(task.priority)}`}
+                    title="Cliquer pour changer la priorité"
+                  >
                     <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClass(task.priority)}`} />
-                    <span className="text-sm font-medium">{task.priority || "—"}</span>
-                  </span>
+                    <span>{task.priority || "—"}</span>
+                  </button>
                 </td>
               );
               if (col.key === "computedTotalProgress") return (
                 <td key={col.key} className="py-2.5 px-3 min-w-32 border-r border-slate-200">
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onTaskProgressChange?.(task.id, prog - 10)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
+                      title="Diminuer la progression"
+                    >
+                      -
+                    </button>
                     <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
                       <div className={`h-full rounded-full ${progressTone(prog)}`} style={{ width: `${prog}%` }} />
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => onTaskProgressChange?.(task.id, prog + 10)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
+                      title="Augmenter la progression"
+                    >
+                      +
+                    </button>
                     <span className="text-xs font-bold text-slate-600 w-8 text-right">{prog}%</span>
                   </div>
                 </td>
@@ -2215,17 +2774,42 @@ function GuidedInputPanel({ open, onClose, allSports, projects, sections = [], o
             <GuidedField label="Description">
               <textarea className={`${inp} resize-none h-24`} placeholder="Objectif, contexte…" value={form.description || ""} onChange={(e) => ff("description", e.target.value)} />
             </GuidedField>
-            <GuidedField label="Sport">
-              <select className={inp} value={form.sport || ""} onChange={(e) => ff("sport", e.target.value)}>
-                {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+            <GuidedField label={form.parentId ? "Sports concernés par l'axe analytique" : "Sport du projet"}>
+              {form.parentId ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => ff("sports", allSports.map((sport) => sport.id))} className="rounded-full border px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Tous</button>
+                    <button type="button" onClick={() => ff("sports", [])} className="rounded-full border px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Aucun</button>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {allSports.map((sport) => {
+                      const checked = (form.sports || []).includes(sport.id);
+                      return (
+                        <label key={sport.id} className={`flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium cursor-pointer transition ${checked ? "border-slate-900 bg-white text-slate-900" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => ff("sports", checked ? (form.sports || []).filter((id) => id !== sport.id) : [...(form.sports || []), sport.id])}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                          <span>{sport.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <select className={inp} value={form.sport || ""} onChange={(e) => ff("sport", e.target.value)}>
+                  {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              )}
             </GuidedField>
             <GuidedField label="Priorité">
               <StatusToggle options={PRIORITY_OPTIONS} value={form.priority} onChange={(v) => ff("priority", v)} />
             </GuidedField>
             <div className="grid grid-cols-2 gap-4">
               <GuidedField label="Date de début"><input type="date" className={inp} value={form.startDate || ""} onChange={(e) => ff("startDate", e.target.value)} /></GuidedField>
-              <GuidedField label="Date de fin"><input type="date" className={inp} value={form.endDate || ""} onChange={(e) => ff("endDate", e.target.value)} /></GuidedField>
+              <GuidedField label="Date de clôture"><input type="date" className={inp} value={form.endDate || ""} onChange={(e) => ff("endDate", e.target.value)} /></GuidedField>
             </div>
             <GuidedField label="Responsable">
               <input className={inp} placeholder="Nom du responsable" value={form.owner || ""} onChange={(e) => ff("owner", e.target.value)} />
@@ -2245,12 +2829,12 @@ function GuidedInputPanel({ open, onClose, allSports, projects, sections = [], o
                   onClick={() => ff("parentId", form.parentId || projects[0]?.id || null)}
                   className={`rounded-2xl border px-3 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${form.parentId ? "border-slate-900 bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}
                 >
-                  Sous-projet
+                  Axe analytique
                 </button>
               </div>
               {form.parentId && (
                 <select className={`${inp} mt-2`} value={form.parentId || ""} onChange={(e) => ff("parentId", e.target.value || null)}>
-                  {projects.map((p) => <option key={p.id} value={p.id}>Rattaché à : {p.name}</option>)}
+                  {projects.map((p) => <option key={p.id} value={p.id}>Rattaché au projet : {p.name}</option>)}
                 </select>
               )}
             </GuidedField>
@@ -2354,6 +2938,238 @@ function GuidedInputPanel({ open, onClose, allSports, projects, sections = [], o
   );
 }
 
+function AttachmentManager({ attachments = [], onAddFiles, onAddWhatsApp, onRemove, whatsAppDraft, onWhatsAppDraftChange }) {
+  const fileInputRef = useRef(null);
+
+  return (
+    <div className="space-y-3 rounded-2xl border bg-slate-50 p-4 md:col-span-2">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Pièces jointes</p>
+          <p className="mt-1 text-xs text-slate-500">PDF, JPEG, XLS, audio et messages WhatsApp. Limite conseillée : 4 Mo par fichier.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="inline-flex items-center gap-2 rounded-2xl border bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+        >
+          <Paperclip className="w-4 h-4" />
+          Ajouter un fichier
+        </button>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".pdf,.jpg,.jpeg,.png,.xls,.xlsx,.csv,.mp3,.wav,.m4a,.ogg,.webm,image/*,audio/*,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+        className="hidden"
+        onChange={(event) => {
+          onAddFiles?.(Array.from(event.target.files || []));
+          event.target.value = "";
+        }}
+      />
+
+      <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+        <input
+          className="rounded-2xl border bg-white px-4 py-3 text-sm"
+          placeholder="Titre WhatsApp"
+          value={whatsAppDraft?.title || ""}
+          onChange={(event) => onWhatsAppDraftChange?.("title", event.target.value)}
+        />
+        <input
+          className="rounded-2xl border bg-white px-4 py-3 text-sm"
+          placeholder="Lien WhatsApp (optionnel)"
+          value={whatsAppDraft?.url || ""}
+          onChange={(event) => onWhatsAppDraftChange?.("url", event.target.value)}
+        />
+        <button
+          type="button"
+          onClick={onAddWhatsApp}
+          className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+        >
+          Ajouter WhatsApp
+        </button>
+      </div>
+      <textarea
+        className="w-full rounded-2xl border bg-white px-4 py-3 text-sm resize-none h-20"
+        placeholder="Contenu du message WhatsApp"
+        value={whatsAppDraft?.message || ""}
+        onChange={(event) => onWhatsAppDraftChange?.("message", event.target.value)}
+      />
+
+      {attachments.length ? (
+        <div className="grid gap-2">
+          {attachments.map((attachment) => {
+            const Icon = attachmentIcon(attachment);
+            return (
+              <div key={attachment.id} className="flex items-start justify-between gap-3 rounded-2xl border bg-white px-3 py-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{attachment.name || "Pièce jointe"}</p>
+                    <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                      <span>{attachmentKindLabel(attachment)}</span>
+                      {attachment.size ? <span>{formatFileSize(attachment.size)}</span> : null}
+                    </div>
+                    {attachment.message ? <p className="mt-1 text-xs text-slate-600 line-clamp-2">{attachment.message}</p> : null}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {attachment.url ? (
+                    <a
+                      href={attachment.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border text-slate-600 hover:bg-slate-100"
+                      title="Ouvrir"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onRemove?.(attachment.id)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border text-red-600 hover:bg-red-50"
+                    title="Supprimer"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed bg-white px-4 py-5 text-sm text-slate-500">
+          Aucune pièce jointe pour le moment.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectCoverManager({ coverImage, onAddImage, onRemoveImage }) {
+  const inputRef = useRef(null);
+
+  return (
+    <div className="space-y-3 rounded-2xl border bg-slate-50 p-4 md:col-span-2">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Miniature du projet</p>
+          <p className="mt-1 text-xs text-slate-500">Importe une image pour identifier visuellement le projet dans les listes et les cartes.</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="inline-flex items-center gap-2 rounded-2xl border bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            <FileImage className="w-4 h-4" />
+            Importer une image
+          </button>
+          {coverImage ? (
+            <button
+              type="button"
+              onClick={onRemoveImage}
+              className="inline-flex items-center gap-2 rounded-2xl border bg-white px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+            >
+              <Trash2 className="w-4 h-4" />
+              Retirer
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          onAddImage?.(Array.from(event.target.files || []));
+          event.target.value = "";
+        }}
+      />
+
+      {coverImage ? (
+        <div className="overflow-hidden rounded-2xl border bg-white">
+          <img src={coverImage} alt="Miniature du projet" className="h-48 w-full object-cover" />
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed bg-white px-4 py-8 text-center text-sm text-slate-500">
+          Aucune miniature pour le moment.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AttachmentViewerModal({ open, title, attachments = [], onClose }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-auto p-6">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-xl font-semibold text-slate-900">{title}</h3>
+            <p className="mt-1 text-sm text-slate-500">{attachments.length} pièce{attachments.length > 1 ? "s jointes" : " jointe"}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 text-xl">✕</button>
+        </div>
+        <div className="space-y-3">
+          {attachments.length ? attachments.map((attachment) => {
+            const Icon = attachmentIcon(attachment);
+            return (
+              <div key={attachment.id} className="rounded-2xl border p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{attachment.name || "Pièce jointe"}</p>
+                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                        <span>{attachmentKindLabel(attachment)}</span>
+                        {attachment.size ? <span>{formatFileSize(attachment.size)}</span> : null}
+                      </div>
+                      {attachment.message ? <p className="mt-2 text-sm text-slate-600 whitespace-pre-wrap">{attachment.message}</p> : null}
+                    </div>
+                  </div>
+                  {attachment.url ? (
+                    <button
+                      type="button"
+                      onClick={() => openAttachmentFile(attachment)}
+                      className="inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      <ExternalLink className="h-4 w-4" /> Ouvrir
+                    </button>
+                  ) : null}
+                </div>
+                {attachment.kind === "image" && attachment.url ? (
+                  <img src={attachment.url} alt={attachment.name || ""} className="mt-3 max-h-72 w-full rounded-2xl border object-cover" />
+                ) : null}
+                {attachment.kind === "audio" && attachment.url ? (
+                  <audio controls className="mt-3 w-full">
+                    <source src={attachment.url} type={attachment.mimeType || "audio/mpeg"} />
+                  </audio>
+                ) : null}
+              </div>
+            );
+          }) : (
+            <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-slate-500">Aucune pièce jointe.</div>
+          )}
+        </div>
+        <div className="mt-5 flex justify-end">
+          <button onClick={onClose} className="px-4 py-2 rounded-2xl border bg-white text-sm font-semibold hover:bg-slate-100">Fermer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function WorkspaceSelector({ workspaces, currentWorkspaceId, onChange, onNew }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -2419,6 +3235,7 @@ export default function JamSaaSApp() {
   // Modals
   const [projectModal, setProjectModal] = useState({ open: false, item: null });
   const [taskModal, setTaskModal] = useState({ open: false, item: null });
+  const [attachmentViewer, setAttachmentViewer] = useState({ open: false, title: "", attachments: [] });
   const [athleteModal, setAthleteModal] = useState({ open: false, item: null });
   const [clubModal, setClubModal] = useState({ open: false, item: null });
   const [docModal, setDocModal] = useState({ open: false, item: null });
@@ -2427,6 +3244,7 @@ export default function JamSaaSApp() {
   const [cfModal, setCfModal] = useState({ open: false, item: null });
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, type: null, item: null });
   const [projectViewMode, setProjectViewMode] = useState("tree");
+  const [archiveEntity, setArchiveEntity] = useState("projects");
   const [taskViewMode, setTaskViewMode] = useState("table");
   const [athleteViewMode, setAthleteViewMode] = useState("table");
   const [clubViewMode, setClubViewMode] = useState("table");
@@ -2453,7 +3271,12 @@ export default function JamSaaSApp() {
   const importInputRef = useRef(null);
 
   const allSports = useMemo(() => [...BASE_SPORTS, ...data.customSports], [data.customSports]);
-  const sportName = (id) => allSports.find((s) => s.id === id)?.name || id;
+  const sportName = (value) => {
+    if (Array.isArray(value)) return value.map((id) => allSports.find((s) => s.id === id)?.name || id).filter(Boolean).join(", ");
+    return allSports.find((s) => s.id === value)?.name || value;
+  };
+  const projectSportIds = (project) => Array.isArray(project?.sports) && project.sports.length ? project.sports : (project?.sport ? [project.sport] : []);
+  const projectMatchesSport = (project, sportId) => sportId === "all" || projectSportIds(project).includes(sportId);
   const splitSubSections = (value) => String(value || "")
     .split(/\n|,/)
     .map((item) => item.trim())
@@ -2500,6 +3323,107 @@ export default function JamSaaSApp() {
   // Form helpers
   const f = (key, val) => setForm((prev) => ({ ...prev, [key]: val }));
   const fcf = (id, val) => setForm((prev) => ({ ...prev, customFieldValues: { ...prev.customFieldValues, [id]: val } }));
+  const updateWhatsAppDraft = (key, value) => {
+    setForm((prev) => ({ ...prev, whatsAppDraft: { ...(prev.whatsAppDraft || {}), [key]: value } }));
+  };
+  const openAttachmentViewer = (title, attachments) => {
+    const safeAttachments = normalizeAttachments(attachments);
+    if (!safeAttachments.length) return;
+    setAttachmentViewer({ open: true, title, attachments: safeAttachments });
+  };
+  const removeAttachment = (attachmentId) => {
+    setForm((prev) => ({ ...prev, attachments: normalizeAttachments(prev.attachments).filter((attachment) => attachment.id !== attachmentId) }));
+  };
+  const addWhatsAppAttachment = () => {
+    const draft = form.whatsAppDraft || {};
+    const title = (draft.title || "").trim();
+    const message = (draft.message || "").trim();
+    const url = (draft.url || "").trim();
+    if (!title && !message && !url) return;
+    const attachment = {
+      id: uid(),
+      kind: "whatsapp",
+      name: title || "Message WhatsApp",
+      message,
+      url,
+      createdAt: new Date().toISOString(),
+    };
+    setForm((prev) => ({
+      ...prev,
+      attachments: [...normalizeAttachments(prev.attachments), attachment],
+      whatsAppDraft: { title: "", message: "", url: "" },
+    }));
+  };
+  const addAttachmentFiles = async (files) => {
+    if (!files?.length) return;
+    const nextAttachments = [];
+    for (const file of files) {
+      if (file.size > ATTACHMENT_FILE_LIMIT) {
+        window.alert(`Le fichier "${file.name}" dépasse la limite conseillée de 4 Mo.`);
+        continue;
+      }
+      try {
+        const url = await readFileAsDataUrl(file);
+        nextAttachments.push({
+          id: uid(),
+          kind: attachmentKindFromFile(file),
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+          url,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        window.alert(`Impossible d'ajouter le fichier "${file.name}".`);
+      }
+    }
+    if (!nextAttachments.length) return;
+    setForm((prev) => ({ ...prev, attachments: [...normalizeAttachments(prev.attachments), ...nextAttachments] }));
+  };
+  const addProjectCoverImage = async (files) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      window.alert("Merci de choisir une image pour la miniature du projet.");
+      return;
+    }
+    if (file.size > ATTACHMENT_FILE_LIMIT) {
+      window.alert(`L'image "${file.name}" dépasse la limite conseillée de 4 Mo.`);
+      return;
+    }
+    try {
+      const url = await readFileAsDataUrl(file);
+      setForm((prev) => ({ ...prev, coverImage: url }));
+    } catch (error) {
+      window.alert(`Impossible d'ajouter l'image "${file.name}".`);
+    }
+  };
+  const toggleFormSport = (sportId) => setForm((prev) => {
+    const current = Array.isArray(prev.sports) ? prev.sports : [];
+    return {
+      ...prev,
+      sports: current.includes(sportId) ? current.filter((id) => id !== sportId) : [...current, sportId],
+    };
+  });
+  const addInlineSport = (target = "sport", multi = false) => {
+    const rawName = String(form.newSportName || "").trim();
+    if (!rawName) return;
+    const id = makeSportId(rawName);
+    if (!id) return;
+    if (!allSports.some((sport) => sport.id === id)) {
+      upd("customSports", (arr) => [...arr, { id, name: rawName, icon: Trophy }]);
+    }
+    setForm((prev) => ({
+      ...prev,
+      [target]: multi ? undefined : id,
+      sports: multi ? Array.from(new Set([...(prev.sports || []), id])) : prev.sports,
+      newSportName: "",
+    }));
+  };
+  const setTaskFormProgress = (value) => {
+    const progress = clampProgress(value);
+    setForm((prev) => ({ ...prev, progress, status: statusFromProgress(progress, prev.status || "À faire") }));
+  };
 
   const resetFilters = () => {
     setSearchQ(""); setFilterSport("all"); setFilterStatus("all");
@@ -2526,18 +3450,30 @@ export default function JamSaaSApp() {
 
   // Handlers
   const handleQuickTask = (projectId) => {
-    setForm({ projectId, title: "", assignee: "", status: "À faire", priority: "Moyenne", progress: 0, startDate: "", endDate: "", description: "", customFieldValues: {} });
+    setForm({ projectId, title: "", assignee: "", status: "À faire", priority: "Moyenne", progress: 0, startDate: "", endDate: "", description: "", customFieldValues: {}, attachments: [], whatsAppDraft: { title: "", message: "", url: "" } });
     setTaskModal({ open: true, item: null });
   };
 
   const handleEditProject = (item) => {
-    setForm({ ...item });
+    setForm({
+      ...item,
+      visibility: item.visibility || "Oui",
+      coverImage: item.coverImage || "",
+      sports: Array.isArray(item.sports) ? item.sports : (item.parentId && item.sport ? [item.sport] : []),
+      customFieldValues: { ...defaultFinancialValues(projectCustomFields), ...(item.customFieldValues || {}) },
+      attachments: normalizeAttachments(item.attachments),
+      whatsAppDraft: { title: "", message: "", url: "" },
+    });
     setProjectModal({ open: true, item });
   };
 
   const handleEditSection = (section) => {
     setForm({ ...section, subSectionsText: (section.subSections || []).join("\n") });
     setClubModal({ open: true, item: section });
+  };
+  const openTaskEditor = (task) => {
+    setForm({ ...task, attachments: normalizeAttachments(task.attachments), whatsAppDraft: { title: "", message: "", url: "" } });
+    setTaskModal({ open: true, item: task });
   };
 
   const requestDelete = (type, item) => setDeleteConfirm({ open: true, type, item });
@@ -2551,7 +3487,21 @@ export default function JamSaaSApp() {
 
   const saveProject = () => {
     const parentId = form.parentId && parentOptionsForProject(form.id, data.projects).some((project) => project.id === form.parentId) ? form.parentId : null;
-    const item = { workspaceId: currentWsId, ...form, parentId, id: form.id || uid(), durationDays: daysBetween(form.startDate, form.endDate), customFieldValues: form.customFieldValues || {} };
+    const selectedSports = parentId ? Array.from(new Set((form.sports || []).filter(Boolean))) : [];
+    const item = {
+      workspaceId: currentWsId,
+      ...form,
+      parentId,
+      id: form.id || uid(),
+      sport: parentId ? (selectedSports[0] || form.sport || allSports[0]?.id || "developpe_couche") : (form.sport || allSports[0]?.id || "developpe_couche"),
+      sports: selectedSports,
+      visibility: form.visibility || "Oui",
+      archived: Boolean(form.archived),
+      coverImage: form.coverImage || "",
+      attachments: normalizeAttachments(form.attachments),
+      durationDays: daysBetween(form.startDate, form.endDate),
+      customFieldValues: { ...defaultFinancialValues(projectCustomFields), ...(form.customFieldValues || {}) },
+    };
     upd("projects", (arr) => form.id ? arr.map((p) => p.id === form.id ? item : p) : [...arr, item]);
     setProjectModal({ open: false, item: null }); setForm({});
   };
@@ -2559,7 +3509,19 @@ export default function JamSaaSApp() {
   const saveTask = () => {
     const progress = normalizeTaskProgress(form.progress, form.status);
     const status = form.status === "Terminé" ? "Terminé" : statusFromProgress(progress, form.status);
-    const item = { workspaceId: currentWsId, ...form, id: form.id || uid(), progress, status, durationDays: daysBetween(form.startDate, form.endDate), customFieldValues: form.customFieldValues || {} };
+    const linkedProject = workspaceProjects.find((project) => project.id === form.projectId);
+    const item = {
+      workspaceId: currentWsId,
+      ...form,
+      id: form.id || uid(),
+      sport: form.sport || linkedProject?.sport || allSports[0]?.id || "developpe_couche",
+      archived: Boolean(form.archived),
+      attachments: normalizeAttachments(form.attachments),
+      progress,
+      status,
+      durationDays: daysBetween(form.startDate, form.endDate),
+      customFieldValues: form.customFieldValues || {},
+    };
     upd("tasks", (arr) => form.id ? arr.map((t) => t.id === form.id ? item : t) : [...arr, item]);
     setTaskModal({ open: false, item: null }); setForm({});
   };
@@ -2657,7 +3619,13 @@ export default function JamSaaSApp() {
   };
 
   const updateProjectStatus = (id, status) => {
-    upd("projects", (arr) => arr.map((project) => project.id === id ? { ...project, status } : project));
+    const projectScope = descendants(id, data.projects);
+    upd("projects", (arr) => arr.map((project) => projectScope.has(project.id) ? { ...project, status } : project));
+    upd("tasks", (arr) => arr.map((task) => {
+      if (!projectScope.has(task.projectId)) return task;
+      const progress = normalizeTaskProgress(task.progress, status);
+      return { ...task, status: statusFromProgress(progress, status), progress };
+    }));
   };
 
   const updateTaskStatus = (id, status) => {
@@ -2668,13 +3636,75 @@ export default function JamSaaSApp() {
     }));
   };
 
+  const updateTaskProgress = (id, nextProgress) => {
+    upd("tasks", (arr) => arr.map((task) => {
+      if (task.id !== id) return task;
+      const progress = clampProgress(nextProgress);
+      const status = statusFromProgress(progress, task.status);
+      return { ...task, progress, status };
+    }));
+  };
+
+  const updateProjectPriority = (id, priority) => {
+    upd("projects", (arr) => arr.map((project) => project.id === id ? { ...project, priority } : project));
+  };
+
+  const updateTaskPriority = (id, priority) => {
+    upd("tasks", (arr) => arr.map((task) => task.id === id ? { ...task, priority } : task));
+  };
+
+  const toggleProjectArchived = (id, archived = true) => {
+    upd("projects", (arr) => arr.map((project) => project.id === id ? { ...project, archived, archivedAt: archived ? new Date().toISOString() : "" } : project));
+  };
+
+  const toggleTaskArchived = (id, archived = true) => {
+    upd("tasks", (arr) => arr.map((task) => task.id === id ? { ...task, archived, archivedAt: archived ? new Date().toISOString() : "" } : task));
+  };
+
+  const updateProjectField = (id, key, value) => {
+    upd("projects", (arr) => arr.map((project) => {
+      if (project.id !== id) return project;
+      const next = { ...project, [key]: value };
+      if (key === "startDate" || key === "endDate") {
+        next.durationDays = daysBetween(key === "startDate" ? value : next.startDate, key === "endDate" ? value : next.endDate);
+      }
+      return next;
+    }));
+  };
+
+  const updateTaskField = (id, key, value) => {
+    upd("tasks", (arr) => arr.map((task) => {
+      if (task.id !== id) return task;
+      const next = { ...task, [key]: value };
+      if (key === "startDate" || key === "endDate") {
+        next.durationDays = daysBetween(key === "startDate" ? value : next.startDate, key === "endDate" ? value : next.endDate);
+      }
+      return next;
+    }));
+  };
+
+  const updateAthleteField = (id, key, value) => {
+    upd("athletes", (arr) => arr.map((athlete) => {
+      if (athlete.id !== id) return athlete;
+      if (key === "sectionId") {
+        const section = wsClubs.find((item) => item.id === value);
+        return { ...athlete, sectionId: value, subSection: "", sport: section?.sport || athlete.sport };
+      }
+      return { ...athlete, [key]: value };
+    }));
+  };
+
   const updateEntityStatus = (key, id, status) => {
     upd(key, (arr) => arr.map((item) => item.id === id ? { ...item, status } : item));
   };
 
   // Enriched + filtered data (workspace-scoped)
-  const wsProjects = useMemo(() => data.projects.filter((p) => p.workspaceId === currentWsId), [data.projects, currentWsId]);
-  const wsTasks = useMemo(() => data.tasks.filter((t) => t.workspaceId === currentWsId), [data.tasks, currentWsId]);
+  const workspaceProjects = useMemo(() => data.projects.filter((p) => p.workspaceId === currentWsId), [data.projects, currentWsId]);
+  const workspaceTasks = useMemo(() => data.tasks.filter((t) => t.workspaceId === currentWsId), [data.tasks, currentWsId]);
+  const wsProjects = useMemo(() => workspaceProjects.filter((project) => !project.archived), [workspaceProjects]);
+  const wsTasks = useMemo(() => workspaceTasks.filter((task) => !task.archived), [workspaceTasks]);
+  const archivedProjects = useMemo(() => workspaceProjects.filter((project) => project.archived), [workspaceProjects]);
+  const archivedTasks = useMemo(() => workspaceTasks.filter((task) => task.archived), [workspaceTasks]);
   const wsAthletes = useMemo(() => data.athletes.filter((a) => a.workspaceId === currentWsId), [data.athletes, currentWsId]);
   const wsClubs = useMemo(() => data.clubs.filter((c) => c.workspaceId === currentWsId), [data.clubs, currentWsId]);
 
@@ -2682,23 +3712,33 @@ export default function JamSaaSApp() {
     wsProjects.map((p) => {
       const projectScope = descendants(p.id, wsProjects);
       const hasLinkedTasks = wsTasks.some((task) => projectScope.has(task.projectId));
-      const computedOwnProgress = ownProgress(p.id, wsTasks);
+      const computedOwnProgress = ownProgress(p.id, wsTasks, wsProjects);
       const computedTotalProgress = consolidatedProgress(p.id, wsTasks, wsProjects);
       return {
         ...p,
         status: hasLinkedTasks ? deriveProjectStatus(computedTotalProgress, p.status) : p.status,
-        sportName: sportName(p.sport),
+        sportName: sportName(projectSportIds(p)),
         computedOwnProgress,
         computedTotalProgress,
       };
     }), [wsProjects, wsTasks, allSports]);
 
   const filteredProjects = useMemo(() => enrichedProjects.filter((p) => {
-    if (filterSport !== "all" && p.sport !== filterSport) return false;
+    if (!projectMatchesSport(p, filterSport)) return false;
     if (filterStatus !== "all" && p.status !== filterStatus) return false;
     if (searchQ && !p.name.toLowerCase().includes(searchQ.toLowerCase())) return false;
     return true;
   }), [enrichedProjects, filterSport, filterStatus, searchQ]);
+  const filteredRootProjects = useMemo(() => filteredProjects.filter((project) => !project.parentId), [filteredProjects]);
+  const filteredSubProjects = useMemo(() => filteredProjects.filter((project) => project.parentId), [filteredProjects]);
+  const wsRootProjects = useMemo(() => wsProjects.filter((project) => !project.parentId), [wsProjects]);
+  const wsSubProjects = useMemo(() => wsProjects.filter((project) => project.parentId), [wsProjects]);
+  const filteredArchivedProjects = useMemo(() => archivedProjects.filter((project) => {
+    if (!projectMatchesSport(project, filterSport)) return false;
+    if (filterStatus !== "all" && project.status !== filterStatus) return false;
+    if (searchQ && !project.name.toLowerCase().includes(searchQ.toLowerCase())) return false;
+    return true;
+  }), [archivedProjects, filterSport, filterStatus, searchQ]);
 
   const filteredTasks = useMemo(() => wsTasks.filter((t) => {
     if (filterStatus !== "all" && t.status !== filterStatus) return false;
@@ -2706,6 +3746,12 @@ export default function JamSaaSApp() {
     if (searchQ && !t.title.toLowerCase().includes(searchQ.toLowerCase())) return false;
     return true;
   }), [wsTasks, filterStatus, filterPriority, searchQ]);
+  const filteredArchivedTasks = useMemo(() => archivedTasks.filter((t) => {
+    if (filterStatus !== "all" && t.status !== filterStatus) return false;
+    if (filterPriority !== "all" && t.priority !== filterPriority) return false;
+    if (searchQ && !t.title.toLowerCase().includes(searchQ.toLowerCase())) return false;
+    return true;
+  }), [archivedTasks, filterStatus, filterPriority, searchQ]);
 
   const filteredAthletes = useMemo(() => wsAthletes.filter((a) => {
     if (filterSport !== "all" && a.sport !== filterSport) return false;
@@ -2724,6 +3770,12 @@ export default function JamSaaSApp() {
   const wsDocs = useMemo(() => data.documents.filter((d) => d.workspaceId === currentWsId), [data.documents, currentWsId]);
   const wsConvocations = useMemo(() => data.convocations.filter((c) => c.workspaceId === currentWsId), [data.convocations, currentWsId]);
   const wsNotifications = useMemo(() => data.notifications.filter((n) => n.workspaceId === currentWsId), [data.notifications, currentWsId]);
+  const peopleOptions = useMemo(() => Array.from(new Set([
+    ...workspaceProjects.map((project) => project.owner),
+    ...workspaceTasks.map((task) => task.assignee),
+    ...wsClubs.map((club) => club.contactName),
+    ...wsAthletes.map((athlete) => athlete.coach),
+  ].filter(Boolean))).sort((a, b) => a.localeCompare(b)), [workspaceProjects, workspaceTasks, wsClubs, wsAthletes]);
 
   const filteredDocs = useMemo(() => wsDocs.filter((d) => {
     if (filterSport !== "all" && d.sport !== filterSport) return false;
@@ -2741,28 +3793,43 @@ export default function JamSaaSApp() {
     return true;
   }), [wsConvocations, filterSport, filterStatus, searchQ]);
 
-  const filteredNotifications = useMemo(() => wsNotifications.filter((notif) => {
-    if (filterSport !== "all" && notif.sport !== filterSport) return false;
-    if (filterStatus !== "all" && notif.status !== filterStatus) return false;
-    if (searchQ && !notif.title.toLowerCase().includes(searchQ.toLowerCase())) return false;
-    return true;
-  }), [wsNotifications, filterSport, filterStatus, searchQ]);
-
-  const projectTree = useMemo(() => buildTree(filteredProjects), [filteredProjects]);
+  const projectTree = useMemo(() => buildTree(filteredRootProjects), [filteredRootProjects]);
+  const subProjectTree = useMemo(() => buildTree(filteredSubProjects), [filteredSubProjects]);
 
   const projectParentChoices = parentOptionsForProject(form.id, wsProjects);
   const hasAvailableProjectParent = projectParentChoices.length > 0;
   const openNewProjectModal = () => {
-    setForm({ status: "À faire", priority: "Moyenne", sport: allSports[0]?.id || "developpe_couche", parentId: null, customFieldValues: {} });
+    setForm({ status: "À faire", priority: "Moyenne", visibility: "Oui", sport: allSports[0]?.id || "developpe_couche", sports: [], parentId: null, coverImage: "", customFieldValues: defaultFinancialValues(projectCustomFields), attachments: [], whatsAppDraft: { title: "", message: "", url: "" } });
+    setProjectModal({ open: true, item: null });
+  };
+  const openNewStandaloneSubProjectModal = () => {
+    const defaultParentId = projectParentChoices[0]?.id || null;
+    setForm({
+      status: "À faire",
+      priority: "Moyenne",
+      visibility: "Oui",
+      sport: allSports[0]?.id || "developpe_couche",
+      sports: [],
+      parentId: defaultParentId,
+      coverImage: "",
+      customFieldValues: defaultFinancialValues(projectCustomFields),
+      attachments: [],
+      whatsAppDraft: { title: "", message: "", url: "" },
+    });
     setProjectModal({ open: true, item: null });
   };
   const handleNewSubProject = (parentProject) => {
     setForm({
       status: "À faire",
       priority: parentProject.priority || "Moyenne",
+      visibility: parentProject.visibility || "Oui",
       sport: parentProject.sport || allSports[0]?.id || "developpe_couche",
+      sports: projectSportIds(parentProject),
       parentId: parentProject.id,
-      customFieldValues: {},
+      coverImage: "",
+      customFieldValues: defaultFinancialValues(projectCustomFields),
+      attachments: [],
+      whatsAppDraft: { title: "", message: "", url: "" },
     });
     setProjectModal({ open: true, item: null });
   };
@@ -3041,7 +4108,7 @@ export default function JamSaaSApp() {
         ...Object.fromEntries(documentCustomFields.map((field) => [field.name, doc.customFieldValues?.[field.id] ?? ""])),
       })));
       appendSheet(wb, "Convocations", wsConvocations.map((conv) => ({ Titre: conv.title, Sport: sportName(conv.sport), Type: conv.type || "", Date: conv.date || "", Heure: conv.time || "", Lieu: conv.location || "", Statut: conv.status || "" })));
-      appendSheet(wb, "Notifications", wsNotifications.map((notif) => ({ Titre: notif.title, Sport: sportName(notif.sport), Type: notif.type || "", Statut: notif.status || "", "Date envoi": notif.sentAt || "", Message: notif.message || "" })));
+      appendSheet(wb, "Notifications", mergedNotifications.map((notif) => ({ Titre: notif.title, Sport: sportName(notif.sport), Type: notif.type || "", Statut: notif.status || "", "Date envoi": notif.sentAt || "", Message: notif.message || "", Origine: notif.systemGenerated ? "Alerte automatique" : "Manuelle" })));
     }
     const names = { projects: "projets", tasks: "taches", clubs: "sections", athletes: "athletes", all: "global" };
     await downloadWorkbook(wb, `export-jam-saas-${names[scope] || "global"}.xlsx`);
@@ -3232,7 +4299,7 @@ export default function JamSaaSApp() {
     if (missingTasks) warnings.push(`${missingTasks} ligne(s) Tâches sans titre seront ignorées.`);
     if (missingSections) warnings.push(`${missingSections} ligne(s) Sections sans nom de section seront ignorées.`);
     if (unknownTaskProjects) warnings.push(`${unknownTaskProjects} tâche(s) indiquent un projet associé introuvable. Elles seront importées sans rattachement.`);
-    if (unknownParents) warnings.push(`${unknownParents} sous-projet(s) indiquent un projet parent introuvable. Ils resteront au niveau principal.`);
+    if (unknownParents) warnings.push(`${unknownParents} axe(s) analytique(s) indiquent un projet parent introuvable. Ils resteront au niveau principal.`);
     if (unknownAthleteSections) warnings.push(`${unknownAthleteSections} athlète(s) indiquent une section introuvable. Ils seront importés sans rattachement.`);
     if (!projectRows.length && !taskRows.length && !sectionRows.length && !athleteRows.length) warnings.push("Aucune ligne exploitable détectée dans les onglets Projets, Tâches, Sections ou Athlètes.");
 
@@ -3315,6 +4382,7 @@ export default function JamSaaSApp() {
   const totalTasks = wsTasks.length;
   const completedTasks = wsTasks.filter((t) => t.status === "Terminé").length;
   const inProgressTasks = wsTasks.filter((t) => t.status === "En cours").length;
+  const rootProjects = wsProjects.filter((project) => !project.parentId);
   const avgProgress = totalTasks ? Math.round(wsTasks.reduce((s, t) => s + normalizeTaskProgress(t.progress, t.status), 0) / totalTasks) : 0;
   const todayTime = useMemo(() => {
     const date = new Date();
@@ -3332,25 +4400,71 @@ export default function JamSaaSApp() {
     .sort((a, b) => a.daysLeft - b.daysLeft)
     .slice(0, 5);
   const criticalTasks = openTasks.filter((task) => task.priority === "Critique" || task.priority === "Haute");
-  const overdueProjects = wsProjects.filter((project) => {
+  const overdueProjects = rootProjects.filter((project) => {
     const days = daysFromToday(project.endDate, todayTime);
     return project.status !== "Terminé" && days !== null && days < 0;
   });
+  const systemDeadlineNotifications = useMemo(() => [
+    ...overdueProjects.map((project) => ({
+      id: `system-project-overdue-${project.id}`,
+      title: `Projet en retard : ${project.name}`,
+      sport: project.sport,
+      channel: "Système",
+      audience: project.owner || "Pilotage",
+      message: `La date de clôture du projet ${project.name}${project.endDate ? ` (${project.endDate})` : ""} est dépassée. Une relance est nécessaire.`,
+      attachmentTitle: "",
+      status: "Prêt à envoyer",
+      sentAt: "",
+      workspaceId: currentWsId,
+      systemGenerated: true,
+      sourceType: "project",
+      sourceId: project.id,
+    })),
+    ...overdueTasks.map((task) => ({
+      id: `system-task-overdue-${task.id}`,
+      title: `Tâche en retard : ${task.title}`,
+      sport: task.sport || workspaceProjects.find((project) => project.id === task.projectId)?.sport || "",
+      channel: "Système",
+      audience: task.assignee || "Pilotage",
+      message: `La date de clôture de la tâche ${task.title}${task.endDate ? ` (${task.endDate})` : ""} est dépassée. Une relance est nécessaire.`,
+      attachmentTitle: "",
+      status: "Prêt à envoyer",
+      sentAt: "",
+      workspaceId: currentWsId,
+      systemGenerated: true,
+      sourceType: "task",
+      sourceId: task.id,
+    })),
+  ], [overdueProjects, overdueTasks, currentWsId, workspaceProjects]);
+  const mergedNotifications = useMemo(() => [...systemDeadlineNotifications, ...wsNotifications], [systemDeadlineNotifications, wsNotifications]);
+  const filteredNotifications = useMemo(() => mergedNotifications.filter((notif) => {
+    if (filterSport !== "all" && notif.sport !== filterSport) return false;
+    if (filterStatus !== "all" && notif.status !== filterStatus) return false;
+    if (searchQ && !notif.title.toLowerCase().includes(searchQ.toLowerCase())) return false;
+    return true;
+  }), [mergedNotifications, filterSport, filterStatus, searchQ]);
   const incompleteAthletes = wsAthletes.filter((athlete) => !athlete.email || !athlete.phone || !athlete.sectionId || !athlete.subSection || !athlete.category);
   const projectBudgetFields = useMemo(() => {
     const financial = projectCustomFields.filter((field) => field.type === "financier");
     const budgetNamed = financial.filter((field) => normalizeKey(field.name).includes("budget"));
     return budgetNamed.length ? budgetNamed : financial;
   }, [projectCustomFields]);
+  const dashboardBudgetForProject = (project) => projectBudgetFields.reduce((sum, field) => sum + (Number(project.customFieldValues?.[field.id]) || 0), 0);
   const budgetTotals = useMemo(() => projectBudgetFields.map((field) => ({
     field,
-    total: wsProjects.reduce((sum, project) => sum + (Number(project.customFieldValues?.[field.id]) || 0), 0),
-  })), [projectBudgetFields, wsProjects]);
+    total: rootProjects.reduce((sum, project) => sum + (Number(project.customFieldValues?.[field.id]) || 0), 0),
+  })), [projectBudgetFields, rootProjects]);
   const totalBudget = budgetTotals.reduce((sum, row) => sum + row.total, 0);
+  const budgetedRootProjects = rootProjects.filter((project) => dashboardBudgetForProject(project) > 0);
+  const unbudgetedRootProjects = rootProjects.filter((project) => dashboardBudgetForProject(project) <= 0);
+  const averageBudget = budgetedRootProjects.length ? totalBudget / budgetedRootProjects.length : 0;
+  const topBudgetProjects = [...budgetedRootProjects]
+    .sort((a, b) => dashboardBudgetForProject(b) - dashboardBudgetForProject(a))
+    .slice(0, 4);
   const dashboardWidgets = data.dashboardWidgets?.length ? data.dashboardWidgets : DEFAULT_DASHBOARD_WIDGETS;
 
   const dashboardSourceRows = (source) => {
-    if (source === "projects") return wsProjects;
+    if (source === "projects") return rootProjects;
     if (source === "athletes") return wsAthletes;
     if (source === "clubs") return wsClubs;
     return wsTasks;
@@ -3371,6 +4485,18 @@ export default function JamSaaSApp() {
     const filter = widget.filter || "all";
     if (filter === "completed") return rows.filter((row) => row.status === "Terminé" || row.status === "Validé");
     if (filter === "open") return rows.filter((row) => row.status !== "Terminé" && row.status !== "Validé");
+    if (filter === "budget") {
+      if (source !== "projects") return [];
+      return rows.filter((row) => dashboardBudgetForProject(row) > 0);
+    }
+    if (filter === "withBudget") {
+      if (source !== "projects") return [];
+      return rows.filter((row) => dashboardBudgetForProject(row) > 0);
+    }
+    if (filter === "withoutBudget") {
+      if (source !== "projects") return [];
+      return rows.filter((row) => dashboardBudgetForProject(row) <= 0);
+    }
     if (filter === "overdue") {
       if (source === "projects") return rows.filter((row) => row.status !== "Terminé" && daysFromToday(row.endDate, todayTime) < 0);
       if (source === "tasks") return rows.filter((row) => row.status !== "Terminé" && daysFromToday(row.endDate, todayTime) < 0);
@@ -3385,6 +4511,24 @@ export default function JamSaaSApp() {
     }
     if (filter === "highPriority") return rows.filter((row) => row.priority === "Haute" || row.priority === "Critique");
     if (filter === "unassigned") return rows.filter((row) => !row.assignee && !row.owner && !row.coach && !row.contactName);
+    if (filter === "missingEmail") {
+      if (source === "athletes") return rows.filter((row) => !row.email);
+      if (source === "clubs") return rows.filter((row) => !row.email);
+      return [];
+    }
+    if (filter === "missingPhone") {
+      if (source === "athletes") return rows.filter((row) => !row.phone);
+      if (source === "clubs") return rows.filter((row) => !row.phone);
+      return [];
+    }
+    if (filter === "missingSection") {
+      if (source === "athletes") return rows.filter((row) => !row.sectionId);
+      return [];
+    }
+    if (filter === "missingProfile") {
+      if (source === "athletes") return rows.filter((row) => !row.category);
+      return [];
+    }
     if (filter === "incomplete") {
       if (source === "athletes") return rows.filter((row) => !row.email || !row.phone || !row.sectionId || !row.subSection || !row.category);
       if (source === "tasks") return rows.filter((row) => !row.assignee || !row.endDate);
@@ -3425,7 +4569,6 @@ export default function JamSaaSApp() {
     if (source === "clubs") common.push((row.subSections || []).join(" "));
     return common.join(" ").toLowerCase();
   };
-  const dashboardBudgetForProject = (project) => projectBudgetFields.reduce((sum, field) => sum + (Number(project.customFieldValues?.[field.id]) || 0), 0);
   const dashboardDrilldownRows = dashboardRowsForWidget(dashboardDrilldown?.widget, dashboardDrilldown?.groupValue);
   const dashboardDrilldownVisibleRows = dashboardDrilldownRows
     .filter((row) => !dashboardDataSearch.trim() || dashboardRowText(row, dashboardDrilldown?.widget?.source).includes(dashboardDataSearch.trim().toLowerCase()))
@@ -3460,14 +4603,177 @@ export default function JamSaaSApp() {
     }
     handleEditSection(row);
   };
+  const renderDashboardEditableCell = (row, column, source) => {
+    if (source === "projects") {
+      if (column.key === "status") {
+        return (
+          <button
+            type="button"
+            onClick={() => updateProjectStatus(row.id, nextOptionValue(STATUS_OPTIONS, row.status))}
+            className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", row.status)}`}
+            title="Cliquer pour changer le statut"
+          >
+            {row.status || "—"}
+          </button>
+        );
+      }
+      if (column.key === "priority") {
+        return (
+          <button
+            type="button"
+            onClick={() => updateProjectPriority(row.id, nextOptionValue(PRIORITY_OPTIONS, row.priority))}
+            className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", row.priority)}`}
+            title="Cliquer pour changer la priorité"
+          >
+            {row.priority || "—"}
+          </button>
+        );
+      }
+      if (column.key === "owner") {
+        return (
+          <input
+            type="text"
+            value={row.owner || ""}
+            onChange={(event) => updateProjectField(row.id, "owner", event.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+            placeholder="Responsable"
+          />
+        );
+      }
+      if (column.key === "endDate") {
+        return (
+          <input
+            type="date"
+            value={row.endDate || ""}
+            onChange={(event) => updateProjectField(row.id, "endDate", event.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          />
+        );
+      }
+    }
+    if (source === "tasks") {
+      if (column.key === "status") {
+        return (
+          <button
+            type="button"
+            onClick={() => updateTaskStatus(row.id, nextOptionValue(STATUS_OPTIONS, row.status))}
+            className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", row.status)}`}
+            title="Cliquer pour changer le statut"
+          >
+            {row.status || "—"}
+          </button>
+        );
+      }
+      if (column.key === "priority") {
+        return (
+          <button
+            type="button"
+            onClick={() => updateTaskPriority(row.id, nextOptionValue(PRIORITY_OPTIONS, row.priority))}
+            className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", row.priority)}`}
+            title="Cliquer pour changer la priorité"
+          >
+            {row.priority || "—"}
+          </button>
+        );
+      }
+      if (column.key === "assignee") {
+        return (
+          <input
+            type="text"
+            value={row.assignee || ""}
+            onChange={(event) => updateTaskField(row.id, "assignee", event.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+            placeholder="Responsable"
+          />
+        );
+      }
+      if (column.key === "endDate") {
+        return (
+          <input
+            type="date"
+            value={row.endDate || ""}
+            onChange={(event) => updateTaskField(row.id, "endDate", event.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          />
+        );
+      }
+      if (column.key === "progress") {
+        const progress = normalizeTaskProgress(row.progress, row.status);
+        return (
+          <div className="flex min-w-[172px] items-center gap-2">
+            <button
+              type="button"
+              onClick={() => updateTaskProgress(row.id, progress - 10)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+              title="Réduire de 10%"
+            >
+              -
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                <div className={`h-full rounded-full ${progressTone(progress)}`} style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => updateTaskProgress(row.id, progress + 10)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+              title="Augmenter de 10%"
+            >
+              +
+            </button>
+            <span className="w-10 text-right text-xs font-bold text-slate-700">{progress}%</span>
+          </div>
+        );
+      }
+    }
+    if (source === "athletes") {
+      if (column.key === "status") {
+        return (
+          <button
+            type="button"
+            onClick={() => updateEntityStatus("athletes", row.id, nextOptionValue(ATHLETE_STATUS, row.status))}
+            className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", row.status)}`}
+            title="Cliquer pour changer le statut"
+          >
+            {row.status || "—"}
+          </button>
+        );
+      }
+      if (column.key === "coach") {
+        return (
+          <input
+            type="text"
+            value={row.coach || ""}
+            onChange={(event) => updateAthleteField(row.id, "coach", event.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+            placeholder="Coach"
+          />
+        );
+      }
+    }
+    if (source === "clubs" && column.key === "status") {
+      return (
+        <button
+          type="button"
+          onClick={() => updateEntityStatus("clubs", row.id, nextOptionValue(CLUB_STATUS, row.status))}
+          className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", row.status)}`}
+          title="Cliquer pour changer le statut"
+        >
+          {row.status || "—"}
+        </button>
+      );
+    }
+    return column.render(row);
+  };
   const dashboardDataColumns = (source) => {
     if (source === "projects") {
       return [
         { key: "name", label: "Projet", render: (row) => <span className="font-semibold text-slate-900">{row.name}</span> },
-        { key: "status", label: "Statut", render: (row) => <Badge className={badgeClass("status", row.status)}>{row.status || "—"}</Badge> },
-        { key: "priority", label: "Priorité", render: (row) => <Badge className={badgeClass("priority", row.priority)}>{row.priority || "—"}</Badge> },
-        { key: "owner", label: "Responsable", render: (row) => row.owner || "—" },
-        { key: "endDate", label: "Échéance", render: (row) => row.endDate || "—" },
+        { key: "status", label: "Statut", render: (row) => <Badge className={badgeClass("status", row.status)}>{row.status || "—"}</Badge>, editable: true },
+        { key: "priority", label: "Priorité", render: (row) => <Badge className={badgeClass("priority", row.priority)}>{row.priority || "—"}</Badge>, editable: true },
+        { key: "owner", label: "Responsable", render: (row) => row.owner || "—", editable: true },
+        { key: "endDate", label: "Échéance", render: (row) => row.endDate || "—", editable: true },
         { key: "budget", label: "Budget", render: (row) => formatMoney(dashboardBudgetForProject(row)) },
       ];
     }
@@ -3477,15 +4783,15 @@ export default function JamSaaSApp() {
         { key: "sectionId", label: "Section", render: (row) => sectionName(row.sectionId) || "—" },
         { key: "subSection", label: "Sous-section", render: (row) => row.subSection || "—" },
         { key: "category", label: "Profil", render: (row) => row.category || "—" },
-        { key: "coach", label: "Coach", render: (row) => row.coach || "—" },
-        { key: "status", label: "Statut", render: (row) => <Badge>{row.status || "—"}</Badge> },
+        { key: "coach", label: "Coach", render: (row) => row.coach || "—", editable: true },
+        { key: "status", label: "Statut", render: (row) => <Badge>{row.status || "—"}</Badge>, editable: true },
         { key: "contact", label: "Contact", render: (row) => row.email || row.phone || "—" },
       ];
     }
     if (source === "clubs") {
       return [
         { key: "name", label: "Section", render: (row) => <span className="font-semibold text-slate-900">{row.name}</span> },
-        { key: "status", label: "Statut", render: (row) => <Badge>{row.status || "—"}</Badge> },
+        { key: "status", label: "Statut", render: (row) => <Badge>{row.status || "—"}</Badge>, editable: true },
         { key: "subSections", label: "Sous-sections", render: (row) => row.subSections?.length ? row.subSections.join(", ") : "—" },
         { key: "athletes", label: "Athlètes", render: (row) => sectionAthleteCount(row.id) },
         { key: "contactName", label: "Responsable", render: (row) => row.contactName || "—" },
@@ -3494,13 +4800,67 @@ export default function JamSaaSApp() {
     }
     return [
       { key: "title", label: "Tâche", render: (row) => <span className="font-semibold text-slate-900">{row.title}</span> },
-      { key: "status", label: "Statut", render: (row) => <Badge className={badgeClass("status", row.status)}>{row.status || "—"}</Badge> },
-      { key: "priority", label: "Priorité", render: (row) => <Badge className={badgeClass("priority", row.priority)}>{row.priority || "—"}</Badge> },
-      { key: "assignee", label: "Responsable", render: (row) => row.assignee || "—" },
-      { key: "endDate", label: "Échéance", render: (row) => row.endDate || "—" },
+      { key: "status", label: "Statut", render: (row) => <Badge className={badgeClass("status", row.status)}>{row.status || "—"}</Badge>, editable: true },
+      { key: "priority", label: "Priorité", render: (row) => <Badge className={badgeClass("priority", row.priority)}>{row.priority || "—"}</Badge>, editable: true },
+      { key: "assignee", label: "Responsable", render: (row) => row.assignee || "—", editable: true },
+      { key: "endDate", label: "Échéance", render: (row) => row.endDate || "—", editable: true },
       { key: "project", label: "Projet", render: (row) => data.projects.find((project) => project.id === row.projectId)?.name || "—" },
-      { key: "progress", label: "Progression", render: (row) => `${normalizeTaskProgress(row.progress, row.status)}%` },
+      { key: "progress", label: "Progression", render: (row) => `${normalizeTaskProgress(row.progress, row.status)}%`, editable: true },
     ];
+  };
+  const exportDashboardDrilldown = async () => {
+    if (!dashboardDrilldown?.widget) return;
+    const source = dashboardDrilldown.widget.source || "tasks";
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "JAM SaaS";
+    wb.created = new Date();
+    const rows = dashboardDrilldownVisibleRows.map((row) => {
+      if (source === "projects") {
+        return {
+          Projet: row.name || "",
+          Statut: row.status || "",
+          Priorité: row.priority || "",
+          Responsable: row.owner || "",
+          "Date fin": row.endDate || "",
+          Budget: dashboardBudgetForProject(row),
+        };
+      }
+      if (source === "athletes") {
+        return {
+          Athlète: row.name || "",
+          Section: sectionName(row.sectionId) || "",
+          "Sous-section": row.subSection || "",
+          Profil: row.category || "",
+          Statut: row.status || "",
+          Coach: row.coach || "",
+          Email: row.email || "",
+          Téléphone: row.phone || "",
+        };
+      }
+      if (source === "clubs") {
+        return {
+          Section: row.name || "",
+          Statut: row.status || "",
+          "Sous-sections": row.subSections?.join(", ") || "",
+          Responsable: row.contactName || "",
+          Email: row.email || "",
+          Téléphone: row.phone || "",
+          Athlètes: sectionAthleteCount(row.id),
+        };
+      }
+      return {
+        Tâche: row.title || "",
+        Statut: row.status || "",
+        Priorité: row.priority || "",
+        Responsable: row.assignee || "",
+        Projet: data.projects.find((project) => project.id === row.projectId)?.name || "",
+        "Date fin": row.endDate || "",
+        Progression: normalizeTaskProgress(row.progress, row.status),
+      };
+    });
+    appendSheet(wb, "Données dashboard", rows.length ? rows : [{ Résultat: "Aucune donnée" }]);
+    const slug = normalizeKey(dashboardDrilldown.widget.title || "dashboard").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "dashboard";
+    await downloadWorkbook(wb, `export-dashboard-${slug}.xlsx`);
   };
   const openWidgetEditor = (widget = null) => {
     setDashboardWidgetForm(widget ? { ...widget } : { type: "number", title: "Nouveau KPI", source: "tasks", filter: "all", groupBy: "status", tone: "slate", size: "small" });
@@ -3531,7 +4891,8 @@ export default function JamSaaSApp() {
     {
       label: "Production",
       items: [
-        { id: "projects", label: "Projets", Icon: FolderKanban, count: wsProjects.length, alert: overdueProjects.length, tooltip: overdueProjects.length ? `${overdueProjects.length} projet${overdueProjects.length > 1 ? "s" : ""} en retard` : `${wsProjects.length} projet${wsProjects.length > 1 ? "s" : ""} au total` },
+        { id: "projects", label: "Projets", Icon: FolderKanban, count: wsRootProjects.length, alert: overdueProjects.filter((project) => !project.parentId).length, tooltip: overdueProjects.filter((project) => !project.parentId).length ? `${overdueProjects.filter((project) => !project.parentId).length} projet${overdueProjects.filter((project) => !project.parentId).length > 1 ? "s" : ""} en retard` : `${wsRootProjects.length} projet${wsRootProjects.length > 1 ? "s" : ""}` },
+        { id: "subprojects", label: "Axes analytiques", Icon: Layers, count: wsSubProjects.length, tooltip: `${wsSubProjects.length} axe${wsSubProjects.length > 1 ? "s" : ""} analytique${wsSubProjects.length > 1 ? "s" : ""} au total` },
         { id: "tasks", label: "Tâches", Icon: ListChecks, count: wsTasks.length, alert: overdueTasks.length, tooltip: overdueTasks.length ? `${overdueTasks.length} tâche${overdueTasks.length > 1 ? "s" : ""} en retard` : `${wsTasks.length} tâche${wsTasks.length > 1 ? "s" : ""} au total` },
         { id: "athletes", label: "Athlètes", Icon: Users, count: wsAthletes.length, alert: incompleteAthletes.length, tooltip: incompleteAthletes.length ? `${incompleteAthletes.length} fiche${incompleteAthletes.length > 1 ? "s" : ""} athlète à compléter` : `${wsAthletes.length} athlète${wsAthletes.length > 1 ? "s" : ""} au total` },
         { id: "clubs", label: "Sections", Icon: Building2, count: wsClubs.length, tooltip: `${wsClubs.length} section${wsClubs.length > 1 ? "s" : ""} au total` },
@@ -3542,12 +4903,13 @@ export default function JamSaaSApp() {
       items: [
         { id: "documents", label: "Documents", Icon: FileText, count: wsDocs.length, tooltip: `${wsDocs.length} document${wsDocs.length > 1 ? "s" : ""} au total` },
         { id: "convocations", label: "Convocations", Icon: CalendarDays, count: wsConvocations.length, tooltip: `${wsConvocations.length} convocation${wsConvocations.length > 1 ? "s" : ""} au total` },
-        { id: "notifications", label: "Notifications", Icon: Bell, count: wsNotifications.length, tooltip: `${wsNotifications.length} notification${wsNotifications.length > 1 ? "s" : ""} au total` },
+        { id: "notifications", label: "Notifications", Icon: Bell, count: mergedNotifications.length, tooltip: `${mergedNotifications.length} notification${mergedNotifications.length > 1 ? "s" : ""} au total` },
       ],
     },
     {
       label: "Système",
       items: [
+        { id: "archives", label: "Archives", Icon: Library, count: archivedProjects.length + archivedTasks.length, tooltip: `${archivedProjects.length} projet${archivedProjects.length > 1 ? "s" : ""} et ${archivedTasks.length} tâche${archivedTasks.length > 1 ? "s" : ""} archivés` },
         { id: "settings", label: "Paramètres", Icon: BarChart3 },
       ],
     },
@@ -3585,37 +4947,37 @@ export default function JamSaaSApp() {
       setFilterPriority("all");
     };
     return (
-      <div className="rounded-3xl border border-slate-200 bg-white p-3 mb-5 shadow-sm">
+      <div className="mb-5 rounded-[28px] border border-slate-200/80 bg-white p-3.5 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.22)]">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 px-2">
+          <div className="flex items-center gap-2 px-2 text-sm font-semibold text-slate-700">
             <Filter className="w-4 h-4 text-slate-400" />
             Filtres
             {activeCount > 0 && <Badge>{activeCount} actif{activeCount > 1 ? "s" : ""}</Badge>}
           </div>
           <div className="relative flex-1 min-w-[220px]">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input className="w-full pl-9 pr-4 py-2.5 rounded-2xl border border-slate-200 text-sm bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" placeholder="Rechercher..." value={searchQ} onChange={(e) => setSearchQ(e.target.value)} />
+            <input className="w-full rounded-2xl border border-slate-200 bg-slate-50/80 py-3 pl-9 pr-4 text-sm text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" placeholder="Rechercher..." value={searchQ} onChange={(e) => setSearchQ(e.target.value)} />
           </div>
           {withSport && (
-            <select className="rounded-2xl border border-slate-200 px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" value={filterSport} onChange={(e) => setFilterSport(e.target.value)}>
+            <select className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900" value={filterSport} onChange={(e) => setFilterSport(e.target.value)}>
               <option value="all">Tous les sports</option>
               {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           )}
           {withStatus && (
-            <select className="rounded-2xl border border-slate-200 px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            <select className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
               <option value="all">Tous les statuts</option>
               {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
           {withPriority && (
-            <select className="rounded-2xl border border-slate-200 px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)}>
+            <select className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900" value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)}>
               <option value="all">Toutes les priorités</option>
               {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           )}
           {activeCount > 0 && (
-            <button onClick={clearFilters} className="flex items-center gap-2 px-3 py-2.5 rounded-2xl text-sm font-semibold text-slate-600 hover:bg-slate-100">
+            <button onClick={clearFilters} className="flex items-center gap-2 rounded-2xl px-3 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-100">
               <X className="w-4 h-4" />
               Réinitialiser
             </button>
@@ -3627,15 +4989,15 @@ export default function JamSaaSApp() {
 
   function PageHeader({ title, subtitle, onNew, newLabel, actions }) {
     return (
-      <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
-          {subtitle && <p className="text-slate-500 mt-1">{subtitle}</p>}
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-[2rem] font-bold tracking-tight text-slate-950">{title}</h1>
+          {subtitle && <p className="max-w-2xl text-sm text-slate-500 md:text-base">{subtitle}</p>}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {actions}
           {onNew && (
-            <button onClick={onNew} className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm">
+            <button onClick={onNew} className="flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">
               <Plus className="w-4 h-4" /> {newLabel}
             </button>
           )}
@@ -3648,7 +5010,7 @@ export default function JamSaaSApp() {
     return (
       <div className="flex gap-2 shrink-0">
         {onSubProject && (
-          <button onClick={onSubProject} className="px-3 py-2 rounded-xl border bg-white hover:bg-violet-50 text-violet-700" title="Créer un sous-projet"><FolderKanban className="w-4 h-4" /></button>
+          <button onClick={onSubProject} className="px-3 py-2 rounded-xl border bg-white hover:bg-violet-50 text-violet-700" title="Créer un axe analytique"><FolderKanban className="w-4 h-4" /></button>
         )}
         <button onClick={onEdit} className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50"><Edit3 className="w-4 h-4" /></button>
         <button onClick={onDelete} className="px-3 py-2 rounded-xl border bg-white hover:bg-red-50 text-red-600"><Trash2 className="w-4 h-4" /></button>
@@ -3674,14 +5036,36 @@ export default function JamSaaSApp() {
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
+          {project.coverImage && <img src={project.coverImage} alt="" className="mb-2 h-24 w-full rounded-2xl object-cover border border-slate-200" />}
           <h3 className="font-semibold text-sm text-slate-900 truncate">{project.name}</h3>
           <p className="text-xs text-slate-500 truncate">{sportName(project.sport)}</p>
         </div>
-        <ActionBtns onSubProject={() => handleNewSubProject(project)} onEdit={() => handleEditProject(project)} onDelete={() => requestDelete("project", project)} />
+        <div className="flex gap-2 shrink-0">
+          <button onClick={() => toggleProjectArchived(project.id, true)} className="px-3 py-2 rounded-xl border bg-white hover:bg-amber-50 text-amber-700" title="Archiver"><Library className="w-4 h-4" /></button>
+          <ActionBtns onSubProject={() => handleNewSubProject(project)} onEdit={() => handleEditProject(project)} onDelete={() => requestDelete("project", project)} />
+        </div>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        <Badge className={badgeClass("priority", project.priority)}>{project.priority}</Badge>
+        <button
+          type="button"
+          onClick={() => updateProjectPriority(project.id, nextOptionValue(PRIORITY_OPTIONS, project.priority))}
+          className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", project.priority)}`}
+          title="Cliquer pour changer la priorité"
+        >
+          {project.priority}
+        </button>
         {project.owner && <Badge>{project.owner}</Badge>}
+        <Badge className={project.visibility === "Non" ? "bg-slate-100 text-slate-600 border-slate-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}>{project.visibility || "Oui"}</Badge>
+        {normalizeAttachments(project.attachments).length > 0 && (
+          <button
+            type="button"
+            onClick={() => openAttachmentViewer(`Pièces jointes · ${project.name}`, project.attachments)}
+            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+            title="Voir les pièces jointes"
+          >
+            <Paperclip className="h-3 w-3" /> {normalizeAttachments(project.attachments).length}
+          </button>
+        )}
       </div>
       <ProgressBar value={project.computedTotalProgress || 0} label="Avancement" />
       <div className="flex justify-between text-xs text-slate-500">
@@ -3695,15 +5079,32 @@ export default function JamSaaSApp() {
     const progress = normalizeTaskProgress(task.progress, task.status);
     return (
       <div className="space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="font-semibold text-sm text-slate-900 truncate">{task.title}</h3>
-            <p className="text-xs text-slate-500 truncate">{data.projects.find((project) => project.id === task.projectId)?.name || "Sans projet"}</p>
-          </div>
-          <ActionBtns onEdit={() => { setForm({ ...task }); setTaskModal({ open: true, item: task }); }} onDelete={() => requestDelete("task", task)} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="font-semibold text-sm text-slate-900 truncate">{task.title}</h3>
+          <p className="text-xs text-slate-500 truncate">{data.projects.find((project) => project.id === task.projectId)?.name || "Sans projet"}</p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          <Badge className={badgeClass("priority", task.priority)}>{task.priority}</Badge>
+          <ActionBtns onEdit={() => openTaskEditor(task)} onDelete={() => requestDelete("task", task)} />
+        </div>
+      <div className="flex flex-wrap gap-1.5">
+        {normalizeAttachments(task.attachments).length > 0 && (
+          <button
+            type="button"
+            onClick={() => openAttachmentViewer(`Pièces jointes · ${task.title}`, task.attachments)}
+            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+            title="Voir les pièces jointes"
+          >
+            <Paperclip className="h-3 w-3" /> {normalizeAttachments(task.attachments).length}
+          </button>
+        )}
+        <button
+            type="button"
+            onClick={() => updateTaskPriority(task.id, nextOptionValue(PRIORITY_OPTIONS, task.priority))}
+            className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", task.priority)}`}
+            title="Cliquer pour changer la priorité"
+          >
+            {task.priority}
+          </button>
           {task.assignee && <Badge>{task.assignee}</Badge>}
         </div>
         <ProgressBar value={progress} label="Avancement" />
@@ -3789,9 +5190,12 @@ export default function JamSaaSApp() {
           <h3 className="font-semibold text-sm text-slate-900 truncate">{notif.title}</h3>
           <p className="text-xs text-slate-500 truncate">{notif.audience || sportName(notif.sport)}</p>
         </div>
-        <ActionBtns onEdit={() => { setForm({ ...notif }); setNotifModal({ open: true, item: notif }); }} onDelete={() => requestDelete("notification", notif)} />
+        {!notif.systemGenerated && (
+          <ActionBtns onEdit={() => { setForm({ ...notif }); setNotifModal({ open: true, item: notif }); }} onDelete={() => requestDelete("notification", notif)} />
+        )}
       </div>
       <div className="flex flex-wrap gap-1.5">
+        {notif.systemGenerated && <Badge className="bg-amber-50 text-amber-700 border-amber-200">Alerte automatique</Badge>}
         {notif.channel && <Badge>{notif.channel}</Badge>}
         <Badge>{sportName(notif.sport)}</Badge>
       </div>
@@ -4042,7 +5446,7 @@ export default function JamSaaSApp() {
             <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
               <button
                 type="button"
-                onClick={() => goToView("tasks")}
+                onClick={() => openDashboardWidget({ id: "sidebar_overdue_tasks", type: "number", title: "Tâches en retard", source: "tasks", filter: "overdue", tone: "red" })}
                 className="rounded-xl bg-white border border-slate-200 p-2 text-left transition hover:border-red-200 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-200"
                 title="Voir les tâches en retard"
               >
@@ -4051,7 +5455,7 @@ export default function JamSaaSApp() {
               </button>
               <button
                 type="button"
-                onClick={() => goToView("tasks")}
+                onClick={() => openDashboardWidget({ id: "sidebar_upcoming_tasks", type: "number", title: "Échéances à 14 jours", source: "tasks", filter: "upcoming", tone: "blue" })}
                 className="rounded-xl bg-white border border-slate-200 p-2 text-left transition hover:border-blue-200 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 title="Voir les tâches à venir"
               >
@@ -4101,6 +5505,189 @@ export default function JamSaaSApp() {
               </div>
             </div>
 
+            <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <StatCard
+                title="Projets principaux"
+                value={rootProjects.length}
+                subtitle={`${overdueProjects.length} en retard sur les projets principaux`}
+                Icon={FolderKanban}
+                tone="red"
+                onClick={() => openDashboardWidget({ id: "overview_root_projects", type: "number", title: "Projets principaux", source: "projects", filter: "all", tone: "red" })}
+              />
+              <StatCard
+                title="Tâches totales"
+                value={totalTasks}
+                subtitle={`${openTasks.length} ouvertes, ${completedTasks} terminées`}
+                Icon={ListChecks}
+                tone="blue"
+                onClick={() => openDashboardWidget({ id: "overview_all_tasks", type: "number", title: "Toutes les tâches", source: "tasks", filter: "all", tone: "blue" })}
+              />
+              <StatCard
+                title="Athlètes suivis"
+                value={wsAthletes.length}
+                subtitle={`${incompleteAthletes.length} fiches à compléter`}
+                Icon={Users}
+                tone="amber"
+                onClick={() => openDashboardWidget({ id: "overview_all_athletes", type: "number", title: "Tous les athlètes", source: "athletes", filter: "all", tone: "amber" })}
+              />
+              <StatCard
+                title="Budget consolidé"
+                value={formatMoney(totalBudget)}
+                subtitle={`${projectBudgetFields.length} colonne${projectBudgetFields.length > 1 ? "s" : ""} financière${projectBudgetFields.length > 1 ? "s" : ""} suivie${projectBudgetFields.length > 1 ? "s" : ""}`}
+                Icon={BarChart3}
+                tone="green"
+                onClick={() => openDashboardWidget({ id: "overview_budget_projects", type: "number", title: "Budget consolidé", source: "projects", filter: "budget", tone: "green" })}
+              />
+            </div>
+
+            <Card className="mb-5 overflow-hidden p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="max-w-2xl">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Cockpit</p>
+                  <h2 className="mt-2 text-xl font-bold text-slate-950">Vue synthétique des opérations</h2>
+                  <p className="mt-1 text-sm text-slate-500">Les widgets restent personnalisables, mais l’ensemble devient plus lisible et plus orienté décision.</p>
+                </div>
+                <div className="grid min-w-[260px] gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Progression moyenne</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-950">{avgProgress}%</p>
+                  </div>
+                  <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-red-500">Retards</p>
+                    <p className="mt-2 text-2xl font-bold text-red-700">{overdueTasks.length + overdueProjects.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-500">À venir</p>
+                    <p className="mt-2 text-2xl font-bold text-blue-700">{upcomingTasks.length}</p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="mb-5 p-5">
+              <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                <div className="max-w-2xl">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-500">Finance</p>
+                  <h2 className="mt-2 text-xl font-bold text-slate-950">Pilotage financier</h2>
+                  <p className="mt-1 text-sm text-slate-500">Une lecture claire des budgets saisis sur les projets principaux, avec accès direct au détail sans quitter le tableau de bord.</p>
+                </div>
+                <Badge className={budgetedRootProjects.length ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}>
+                  {budgetedRootProjects.length ? `${budgetedRootProjects.length} projet${budgetedRootProjects.length > 1 ? "s" : ""} budgété${budgetedRootProjects.length > 1 ? "s" : ""}` : "Aucun budget saisi"}
+                </Badge>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <button
+                  type="button"
+                  onClick={() => openDashboardWidget({ id: "finance_total_budget", type: "number", title: "Budget total consolidé", source: "projects", filter: "budget", tone: "green" })}
+                  className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
+                >
+                  <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Budget total</p>
+                  <p className="mt-2 text-3xl font-bold text-emerald-700">{formatMoney(totalBudget)}</p>
+                  <p className="mt-1 text-sm text-emerald-700/70">ouvrir les projets budgétés</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openDashboardWidget({ id: "finance_budgeted_projects", type: "number", title: "Projets avec budget", source: "projects", filter: "withBudget", tone: "green" })}
+                  className="rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
+                >
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Projets budgétés</p>
+                  <p className="mt-2 text-3xl font-bold text-slate-950">{budgetedRootProjects.length}</p>
+                  <p className="mt-1 text-sm text-slate-500">sur {rootProjects.length} projets principaux</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openDashboardWidget({ id: "finance_unbudgeted_projects", type: "number", title: "Projets sans budget", source: "projects", filter: "withoutBudget", tone: "amber" })}
+                  className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
+                >
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-700">Sans budget</p>
+                  <p className="mt-2 text-3xl font-bold text-amber-700">{unbudgetedRootProjects.length}</p>
+                  <p className="mt-1 text-sm text-amber-700/70">projets à compléter</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openDashboardWidget({ id: "finance_avg_budget", type: "number", title: "Budget moyen par projet", source: "projects", filter: "withBudget", tone: "blue" })}
+                  className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
+                >
+                  <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Budget moyen</p>
+                  <p className="mt-2 text-3xl font-bold text-blue-700">{formatMoney(averageBudget)}</p>
+                  <p className="mt-1 text-sm text-blue-700/70">sur les projets budgétés</p>
+                </button>
+              </div>
+
+              <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Top budgets</p>
+                      <p className="text-xs text-slate-500">Les plus gros montants saisis actuellement.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openDashboardWidget({ id: "finance_budget_ranking", type: "bar", title: "Budgets par projet", source: "projects", filter: "withBudget", groupBy: "status", tone: "green" })}
+                      className="text-xs font-semibold text-slate-500 hover:text-slate-900"
+                    >
+                      Voir le détail
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {topBudgetProjects.length ? topBudgetProjects.map((project, index) => (
+                      <button
+                        key={project.id}
+                        type="button"
+                        onClick={() => editDashboardRow(project, "projects")}
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl bg-white px-3 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">#{index + 1}</p>
+                          <p className="truncate text-sm font-semibold text-slate-900">{project.name}</p>
+                          <p className="text-xs text-slate-500">{project.owner || "Responsable non renseigné"}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-bold text-slate-950">{formatMoney(dashboardBudgetForProject(project))}</p>
+                          <p className="text-xs text-slate-500">{project.endDate || "Sans échéance"}</p>
+                        </div>
+                      </button>
+                    )) : (
+                      <div className="rounded-2xl bg-white px-3 py-6 text-center text-sm text-slate-500">
+                        Aucun budget n’a encore été saisi sur les projets principaux.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-sm font-semibold text-slate-900">Couverture budgétaire</p>
+                  <p className="mt-1 text-xs text-slate-500">Part des projets principaux qui ont déjà un budget renseigné.</p>
+                  <div className="mt-4">
+                    <ProgressBar value={rootProjects.length ? Math.round((budgetedRootProjects.length / rootProjects.length) * 100) : 0} label="Projets principaux couverts" />
+                  </div>
+                  <div className="mt-4 grid gap-2">
+                    <button type="button" onClick={() => openDashboardWidget({ id: "finance_budgeted_cover", type: "number", title: "Projets avec budget", source: "projects", filter: "withBudget", tone: "green" })} className="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2.5 text-left text-sm hover:bg-emerald-100/80">
+                      <span className="text-emerald-800">Avec budget</span>
+                      <span className="font-bold text-emerald-700">{budgetedRootProjects.length}</span>
+                    </button>
+                    <button type="button" onClick={() => openDashboardWidget({ id: "finance_budget_missing", type: "number", title: "Projets sans budget", source: "projects", filter: "withoutBudget", tone: "amber" })} className="flex items-center justify-between rounded-xl bg-amber-50 px-3 py-2.5 text-left text-sm hover:bg-amber-100/80">
+                      <span className="text-amber-800">Sans budget</span>
+                      <span className="font-bold text-amber-700">{unbudgetedRootProjects.length}</span>
+                    </button>
+                    <button type="button" onClick={() => openDashboardWidget({ id: "finance_all_root_projects", type: "number", title: "Tous les projets principaux", source: "projects", filter: "all", tone: "slate" })} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5 text-left text-sm hover:bg-slate-100">
+                      <span className="text-slate-700">Ouvrir les projets</span>
+                      <span className="font-bold text-slate-900">{rootProjects.length}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Widgets</p>
+                <h2 className="mt-1 text-lg font-bold text-slate-950">Indicateurs personnalisables</h2>
+              </div>
+              <p className="text-sm text-slate-500">{dashboardWidgets.length} widget{dashboardWidgets.length > 1 ? "s" : ""}</p>
+            </div>
+
             <div className="mb-5 grid gap-4 md:grid-cols-4">
               {dashboardWidgets.map((widget) => renderDashboardWidget(widget))}
             </div>
@@ -4116,18 +5703,23 @@ export default function JamSaaSApp() {
                     {overdueTasks.length ? `${overdueTasks.length} retard${overdueTasks.length > 1 ? "s" : ""}` : "À jour"}
                   </Badge>
                 </div>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <button type="button" onClick={() => goToView("tasks")} className="rounded-2xl border border-red-100 bg-red-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
-                    <p className="text-xs font-bold uppercase tracking-wide text-red-700">Retards</p>
-                    <p className="mt-2 text-3xl font-bold text-red-700">{overdueTasks.length + overdueProjects.length}</p>
-                    <p className="mt-1 text-sm text-red-700/70">tâches + projets</p>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <button type="button" onClick={() => openDashboardWidget({ id: "operations_overdue_tasks", type: "number", title: "Tâches en retard", source: "tasks", filter: "overdue", tone: "red" })} className="rounded-2xl border border-red-100 bg-red-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
+                    <p className="text-xs font-bold uppercase tracking-wide text-red-700">Tâches en retard</p>
+                    <p className="mt-2 text-3xl font-bold text-red-700">{overdueTasks.length}</p>
+                    <p className="mt-1 text-sm text-red-700/70">ouvrir le tableau</p>
                   </button>
-                  <button type="button" onClick={() => goToView("tasks")} className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
+                  <button type="button" onClick={() => openDashboardWidget({ id: "operations_overdue_projects", type: "number", title: "Projets en retard", source: "projects", filter: "overdue", tone: "red" })} className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
+                    <p className="text-xs font-bold uppercase tracking-wide text-rose-700">Projets en retard</p>
+                    <p className="mt-2 text-3xl font-bold text-rose-700">{overdueProjects.length}</p>
+                    <p className="mt-1 text-sm text-rose-700/70">ouvrir le tableau</p>
+                  </button>
+                  <button type="button" onClick={() => openDashboardWidget({ id: "operations_critical_tasks", type: "number", title: "Tâches critiques", source: "tasks", filter: "highPriority", tone: "amber" })} className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
                     <p className="text-xs font-bold uppercase tracking-wide text-amber-700">Critiques</p>
                     <p className="mt-2 text-3xl font-bold text-amber-700">{criticalTasks.length}</p>
                     <p className="mt-1 text-sm text-amber-700/70">haute priorité</p>
                   </button>
-                  <button type="button" onClick={() => goToView("tasks")} className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
+                  <button type="button" onClick={() => openDashboardWidget({ id: "operations_upcoming_tasks", type: "number", title: "Échéances à 14 jours", source: "tasks", filter: "upcoming", tone: "blue" })} className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
                     <p className="text-xs font-bold uppercase tracking-wide text-blue-700">14 jours</p>
                     <p className="mt-2 text-3xl font-bold text-blue-700">{upcomingTasks.length}</p>
                     <p className="mt-1 text-sm text-blue-700/70">échéances proches</p>
@@ -4136,16 +5728,40 @@ export default function JamSaaSApp() {
                 <div className="mt-5">
                   <ProgressBar value={avgProgress} label="Progression moyenne des tâches" />
                 </div>
+                {upcomingTasks.length > 0 && (
+                  <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-900">Échéances à surveiller</p>
+                      <button type="button" onClick={() => openDashboardWidget({ id: "operations_upcoming_tasks_link", type: "number", title: "Échéances à 14 jours", source: "tasks", filter: "upcoming", tone: "blue" })} className="text-xs font-semibold text-slate-500 hover:text-slate-900">
+                        Ouvrir les tâches
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {upcomingTasks.slice(0, 3).map((task) => (
+                        <div key={task.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-2.5">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900">{task.title}</p>
+                            <p className="text-xs text-slate-500">{data.projects.find((project) => project.id === task.projectId)?.name || "Sans projet"}</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-sm font-semibold text-slate-900">{task.endDate || "—"}</p>
+                            <p className="text-xs text-slate-500">{task.daysLeft === 0 ? "Aujourd’hui" : `${task.daysLeft} jour${task.daysLeft > 1 ? "s" : ""}`}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </Card>
 
               <Card className="p-5">
                 <h2 className="mb-4 text-lg font-semibold text-slate-950">Données à compléter</h2>
                 <div className="space-y-2">
-                  <button type="button" onClick={() => goToView("athletes")} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans email</span><Badge>{wsAthletes.filter((a) => !a.email).length}</Badge></button>
-                  <button type="button" onClick={() => goToView("athletes")} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans téléphone</span><Badge>{wsAthletes.filter((a) => !a.phone).length}</Badge></button>
-                  <button type="button" onClick={() => goToView("athletes")} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans section</span><Badge>{wsAthletes.filter((a) => !a.sectionId).length}</Badge></button>
-                  <button type="button" onClick={() => goToView("athletes")} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans profil</span><Badge>{wsAthletes.filter((a) => !a.category).length}</Badge></button>
-                  <button type="button" onClick={() => goToView("tasks")} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Tâches non assignées</span><Badge>{wsTasks.filter((task) => !task.assignee).length}</Badge></button>
+                  <button type="button" onClick={() => openDashboardWidget({ id: "data_missing_email", type: "number", title: "Athlètes sans email", source: "athletes", filter: "missingEmail", tone: "amber" })} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans email</span><Badge>{wsAthletes.filter((a) => !a.email).length}</Badge></button>
+                  <button type="button" onClick={() => openDashboardWidget({ id: "data_missing_phone", type: "number", title: "Athlètes sans téléphone", source: "athletes", filter: "missingPhone", tone: "amber" })} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans téléphone</span><Badge>{wsAthletes.filter((a) => !a.phone).length}</Badge></button>
+                  <button type="button" onClick={() => openDashboardWidget({ id: "data_missing_section", type: "number", title: "Athlètes sans section", source: "athletes", filter: "missingSection", tone: "amber" })} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans section</span><Badge>{wsAthletes.filter((a) => !a.sectionId).length}</Badge></button>
+                  <button type="button" onClick={() => openDashboardWidget({ id: "data_missing_profile", type: "number", title: "Athlètes sans profil", source: "athletes", filter: "missingProfile", tone: "amber" })} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Athlètes sans profil</span><Badge>{wsAthletes.filter((a) => !a.category).length}</Badge></button>
+                  <button type="button" onClick={() => openDashboardWidget({ id: "data_unassigned_tasks", type: "number", title: "Tâches non assignées", source: "tasks", filter: "unassigned", tone: "blue" })} className="flex w-full justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50"><span>Tâches non assignées</span><Badge>{wsTasks.filter((task) => !task.assignee).length}</Badge></button>
                 </div>
               </Card>
             </div>
@@ -4182,10 +5798,10 @@ export default function JamSaaSApp() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => goToView(dashboardDrilldown.widget.source === "clubs" ? "clubs" : dashboardDrilldown.widget.source || "tasks")}
+                      onClick={exportDashboardDrilldown}
                       className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
                     >
-                      Ouvrir la vue complète
+                      <Download className="h-4 w-4" /> Exporter Excel
                     </button>
                   </div>
                 </div>
@@ -4256,7 +5872,7 @@ export default function JamSaaSApp() {
                           <tr key={row.id} className="border-b border-slate-100 bg-white hover:bg-slate-50">
                             {dashboardDataColumns(dashboardDrilldown.widget.source).map((column) => (
                               <td key={column.key} className="border-r border-slate-100 px-4 py-3 text-slate-700">
-                                {column.render(row)}
+                                {renderDashboardEditableCell(row, column, dashboardDrilldown.widget.source)}
                               </td>
                             ))}
                             <td className="px-4 py-3 text-right">
@@ -4306,14 +5922,15 @@ export default function JamSaaSApp() {
                     </span>
                     <div>
                       <h1 className="text-2xl font-bold text-slate-900">Projets</h1>
-                      <p className="text-slate-500 mt-0.5">{filteredProjects.length} projet{filteredProjects.length > 1 ? "s" : ""} affiché{filteredProjects.length > 1 ? "s" : ""}</p>
+                      <p className="text-slate-500 mt-0.5">{filteredRootProjects.length} projet{filteredRootProjects.length > 1 ? "s" : ""} principal{filteredRootProjects.length > 1 ? "aux" : ""} affiché{filteredRootProjects.length > 1 ? "s" : ""}</p>
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Badge className="bg-slate-50 text-slate-700 border-slate-200">{wsProjects.length} total</Badge>
-                    <Badge className="bg-blue-50 text-blue-700 border-blue-200">{wsProjects.filter((project) => project.status === "En cours").length} en cours</Badge>
-                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">{wsProjects.filter((project) => project.status === "Terminé").length} terminés</Badge>
-                    {overdueProjects.length > 0 && <Badge className="bg-red-50 text-red-700 border-red-200">{overdueProjects.length} en retard</Badge>}
+                    <Badge className="bg-slate-50 text-slate-700 border-slate-200">{wsRootProjects.length} principaux</Badge>
+                    <Badge className="bg-blue-50 text-blue-700 border-blue-200">{wsRootProjects.filter((project) => project.status === "En cours").length} en cours</Badge>
+                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">{wsRootProjects.filter((project) => project.status === "Terminé").length} terminés</Badge>
+                    {overdueProjects.filter((project) => !project.parentId).length > 0 && <Badge className="bg-red-50 text-red-700 border-red-200">{overdueProjects.filter((project) => !project.parentId).length} en retard</Badge>}
+                    {wsSubProjects.length > 0 && <Badge className="bg-violet-50 text-violet-700 border-violet-200">{wsSubProjects.length} axes analytiques rangés à part</Badge>}
                   </div>
                 </div>
                 <div className="flex w-full items-center gap-2 flex-wrap justify-start xl:w-auto xl:justify-end">
@@ -4334,7 +5951,7 @@ export default function JamSaaSApp() {
                 </div>
               </div>
             </div>
-            <FilterBar withPriority={false} />
+            {FilterBar({ withPriority: false })}
             {projectViewMode === "tree" ? (
               <>
                 <ProjectTree
@@ -4346,31 +5963,139 @@ export default function JamSaaSApp() {
                   onQuickTask={handleQuickTask}
                   onNewSubProject={handleNewSubProject}
                   onEditProject={handleEditProject}
+                  onEditTask={(task) => openTaskEditor(task)}
+                  onArchiveProject={(project) => toggleProjectArchived(project.id, true)}
                   requestDelete={requestDelete}
                   onDuplicate={handleDuplicate}
                   projectCustomFields={projectCustomFields}
+                  onProjectStatusChange={updateProjectStatus}
+                  onProjectPriorityChange={updateProjectPriority}
+                  onTaskStatusChange={updateTaskStatus}
+                  onTaskPriorityChange={updateTaskPriority}
+                  onTaskProgressChange={updateTaskProgress}
+                  onOpenAttachments={openAttachmentViewer}
                 />
-                {!filteredProjects.length && <p className="text-center text-slate-500 py-12">Aucun projet trouvé.</p>}
+                {!filteredRootProjects.length && <p className="text-center text-slate-500 py-12">Aucun projet principal trouvé.</p>}
               </>
             ) : projectViewMode === "table" ? (
               <ProjectTable
-                projects={filteredProjects}
+                projects={filteredRootProjects}
                 tasks={wsTasks}
+                allProjects={enrichedProjects}
                 onEdit={handleEditProject}
+                onEditTask={(task) => openTaskEditor(task)}
+                onArchiveProject={(project) => toggleProjectArchived(project.id, true)}
                 requestDelete={requestDelete}
                 onQuickTask={handleQuickTask}
                 onNewSubProject={handleNewSubProject}
                 config={data.tableConfig?.projects}
                 onConfigChange={(next) => setData((prev) => ({ ...prev, tableConfig: { ...(prev.tableConfig || {}), projects: next } }))}
                 customFields={legacyProjectCustomFields}
+                onStatusChange={updateProjectStatus}
+                onPriorityChange={updateProjectPriority}
+                onTaskStatusChange={updateTaskStatus}
+                onTaskPriorityChange={updateTaskPriority}
+                onTaskProgressChange={updateTaskProgress}
+                onProjectFieldChange={updateProjectField}
+                onOpenAttachments={openAttachmentViewer}
               />
             ) : (
               <KanbanBoard
-                rows={filteredProjects}
+                rows={filteredRootProjects}
                 statuses={STATUS_OPTIONS}
                 onStatusChange={updateProjectStatus}
                 renderCard={renderProjectKanbanCard}
                 emptyLabel="Aucun projet trouvé."
+                celebrateStatus="Terminé"
+              />
+            )}
+          </div>
+        )}
+
+        {view === "subprojects" && (
+          <div className="p-6 max-w-7xl mx-auto">
+            <div className="mb-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between flex-wrap gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-sm">
+                      <Layers className="w-5 h-5" />
+                    </span>
+                    <div>
+                      <h1 className="text-2xl font-bold text-slate-900">Axes analytiques</h1>
+                      <p className="text-slate-500 mt-0.5">{filteredSubProjects.length} axe{filteredSubProjects.length > 1 ? "s analytiques" : " analytique"} affiché{filteredSubProjects.length > 1 ? "s" : ""}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Badge className="bg-violet-50 text-violet-700 border-violet-200">{wsSubProjects.length} total</Badge>
+                    <Badge className="bg-blue-50 text-blue-700 border-blue-200">{wsSubProjects.filter((project) => project.status === "En cours").length} en cours</Badge>
+                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">{wsSubProjects.filter((project) => project.status === "Terminé").length} terminés</Badge>
+                  </div>
+                </div>
+                <div className="flex w-full items-center gap-2 flex-wrap justify-start xl:w-auto xl:justify-end">
+                  <ViewToggle options={projectViewOptions} value={projectViewMode} onChange={setProjectViewMode} />
+                  <button onClick={openNewStandaloneSubProjectModal}
+                    className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm font-medium">
+                    <Plus className="w-4 h-4" /> Nouvel axe analytique
+                  </button>
+                </div>
+              </div>
+            </div>
+            {FilterBar({ withPriority: false })}
+            {projectViewMode === "tree" ? (
+              <>
+                <ProjectTree
+                  nodes={subProjectTree}
+                  tasks={wsTasks}
+                  projects={enrichedProjects}
+                  expanded={expanded}
+                  setExpanded={setExpanded}
+                  onQuickTask={handleQuickTask}
+                  onNewSubProject={handleNewSubProject}
+                  onEditProject={handleEditProject}
+                  onEditTask={(task) => openTaskEditor(task)}
+                  onArchiveProject={(project) => toggleProjectArchived(project.id, true)}
+                  requestDelete={requestDelete}
+                  onDuplicate={handleDuplicate}
+                  projectCustomFields={projectCustomFields}
+                  onProjectStatusChange={updateProjectStatus}
+                  onProjectPriorityChange={updateProjectPriority}
+                  onTaskStatusChange={updateTaskStatus}
+                  onTaskPriorityChange={updateTaskPriority}
+                  onTaskProgressChange={updateTaskProgress}
+                  onOpenAttachments={openAttachmentViewer}
+                />
+                {!filteredSubProjects.length && <p className="text-center text-slate-500 py-12">Aucun axe analytique trouvé.</p>}
+              </>
+            ) : projectViewMode === "table" ? (
+              <ProjectTable
+                projects={filteredSubProjects}
+                tasks={wsTasks}
+                allProjects={enrichedProjects}
+                onEdit={handleEditProject}
+                onEditTask={(task) => openTaskEditor(task)}
+                onArchiveProject={(project) => toggleProjectArchived(project.id, true)}
+                requestDelete={requestDelete}
+                onQuickTask={handleQuickTask}
+                onNewSubProject={handleNewSubProject}
+                config={data.tableConfig?.projects}
+                onConfigChange={(next) => setData((prev) => ({ ...prev, tableConfig: { ...(prev.tableConfig || {}), projects: next } }))}
+                customFields={legacyProjectCustomFields}
+                onStatusChange={updateProjectStatus}
+                onPriorityChange={updateProjectPriority}
+                onTaskStatusChange={updateTaskStatus}
+                onTaskPriorityChange={updateTaskPriority}
+                onTaskProgressChange={updateTaskProgress}
+                onProjectFieldChange={updateProjectField}
+                onOpenAttachments={openAttachmentViewer}
+              />
+            ) : (
+              <KanbanBoard
+                rows={filteredSubProjects}
+                statuses={STATUS_OPTIONS}
+                onStatusChange={updateProjectStatus}
+                renderCard={renderProjectKanbanCard}
+                emptyLabel="Aucun axe analytique trouvé."
                 celebrateStatus="Terminé"
               />
             )}
@@ -4384,28 +6109,43 @@ export default function JamSaaSApp() {
               title="Tâches"
               subtitle={`${filteredTasks.length} tâche${filteredTasks.length > 1 ? "s" : ""}`}
               actions={fileActions("tasks", "tâches")}
-              onNew={() => { setForm({ status: "À faire", priority: "Moyenne", progress: 0, customFieldValues: {} }); setTaskModal({ open: true, item: null }); }}
+              onNew={() => { setForm({ status: "À faire", priority: "Moyenne", progress: 0, customFieldValues: {}, attachments: [], whatsAppDraft: { title: "", message: "", url: "" } }); setTaskModal({ open: true, item: null }); }}
               newLabel="Nouvelle tâche"
             />
             <div className="-mt-4 mb-5 flex justify-end">
               <ViewToggle options={tableKanbanOptions} value={taskViewMode} onChange={setTaskViewMode} />
             </div>
-            <FilterBar withSport={false} withPriority />
+            {FilterBar({ withSport: false, withPriority: true })}
             {taskViewMode === "table" ? (
               <EntityTable
                 rows={filteredTasks}
                 nameKey="title"
                 emptyLabel="Aucune tâche trouvée."
                 builtinCols={[
-                  { key: "title", label: "Tâche", type: "texte", sortable: true },
-                  { key: "status", label: "Statut", type: "statut", sortable: true, options: STATUS_OPTIONS,
-                    render: (t) => <Badge className={badgeClass("status", t.status)}>{t.status}</Badge> },
+                  { key: "title", label: "Tâche", type: "texte", sortable: true,
+                    render: (t) => (
+                      <button type="button" onClick={() => openTaskEditor(t)} className="flex items-center gap-2 text-left hover:underline">
+                        <span className="font-semibold text-slate-900">{t.title}</span>
+                        {normalizeAttachments(t.attachments).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); openAttachmentViewer(`Pièces jointes · ${t.title}`, t.attachments); }}
+                            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                            title="Voir les pièces jointes"
+                          >
+                            <Paperclip className="h-3 w-3" /> {normalizeAttachments(t.attachments).length}
+                          </button>
+                        )}
+                      </button>
+                    ) },
+                  { key: "status", label: "Statut", type: "statut", sortable: true, options: STATUS_OPTIONS },
                   { key: "priority", label: "Priorité", type: "statut", sortable: true, options: PRIORITY_OPTIONS,
                     render: (t) => <Badge className={badgeClass("priority", t.priority)}>{t.priority}</Badge> },
+                  { key: "attachmentsCount", label: "PJ", type: "nombre", sortable: true, accessor: (t) => normalizeAttachments(t.attachments).length },
                   { key: "projectId", label: "Projet", type: "texte", sortable: true,
                     accessor: (t) => data.projects.find((p) => p.id === t.projectId)?.name || "—",
                     render: (t) => <span className="text-slate-700">{data.projects.find((p) => p.id === t.projectId)?.name || "—"}</span> },
-                  { key: "assignee", label: "Assigné", type: "personne", sortable: true },
+                  { key: "assignee", label: "Assigné", type: "personne", sortable: true, quickEdit: "text", placeholder: "Assigné à" },
                   { key: "progress", label: "Avancement", type: "nombre", sortable: true,
                     accessor: (t) => normalizeTaskProgress(t.progress, t.status),
                     render: (t) => {
@@ -4419,14 +6159,20 @@ export default function JamSaaSApp() {
                         </div>
                       );
                     } },
-                  { key: "startDate", label: "Début", type: "date", sortable: true },
-                  { key: "endDate", label: "Échéance", type: "date", sortable: true },
+                  { key: "startDate", label: "Début", type: "date", sortable: true, quickEdit: "date" },
+                  { key: "endDate", label: "Échéance", type: "date", sortable: true, quickEdit: "date" },
                 ]}
                 config={data.tableConfig?.tasks}
                 onConfigChange={(next) => setData((prev) => ({ ...prev, tableConfig: { ...(prev.tableConfig || {}), tasks: next } }))}
-                onEdit={(task) => { setForm({ ...task }); setTaskModal({ open: true, item: task }); }}
+                onEdit={(task) => openTaskEditor(task)}
+                onArchive={(task) => toggleTaskArchived(task.id, true)}
                 onDelete={(task) => requestDelete("task", task)}
                 customFields={legacyTaskCustomFields}
+                onStatusChange={updateTaskStatus}
+                onPriorityChange={updateTaskPriority}
+                onProgressChange={updateTaskProgress}
+                onFieldChange={updateTaskField}
+                onOpenAttachments={openAttachmentViewer}
               />
             ) : (
               <KanbanBoard
@@ -4453,7 +6199,7 @@ export default function JamSaaSApp() {
             <div className="-mt-4 mb-5 flex justify-end">
               <ViewToggle options={tableKanbanOptions} value={athleteViewMode} onChange={setAthleteViewMode} />
             </div>
-            <FilterBar withSport={false} statusOptions={ATHLETE_STATUS} />
+            {FilterBar({ withSport: false, statusOptions: ATHLETE_STATUS })}
             {athleteViewMode === "table" ? (
               <EntityTable
                 rows={filteredAthletes}
@@ -4462,10 +6208,11 @@ export default function JamSaaSApp() {
                 builtinCols={[
                   { key: "name", label: "Athlète", type: "texte", sortable: true },
                   { key: "status", label: "Statut", type: "statut", sortable: true, options: ATHLETE_STATUS,
-                    render: (a) => <Badge className={badgeClass("status", a.status === "Actif" ? "En cours" : a.status === "Blessé" ? "En attente" : "À faire")}>{a.status}</Badge> },
+                    badgeTone: (a) => a.status === "Actif" ? "En cours" : a.status === "Blessé" ? "En attente" : "À faire" },
                   { key: "sectionId", label: "Section", type: "texte", sortable: true,
                     accessor: (a) => sectionName(a.sectionId),
-                    render: (a) => <span className="text-slate-600">{sectionName(a.sectionId) || "—"}</span> },
+                    quickEdit: "select",
+                    editOptions: () => wsClubs.map((section) => ({ value: section.id, label: section.name })) },
                   { key: "subSection", label: "Sous-section", type: "texte", sortable: true },
                   { key: "category", label: "Profil", type: "statut", sortable: true, options: ATHLETE_PROFILE_OPTIONS },
                   { key: "coach", label: "Coach", type: "personne", sortable: true },
@@ -4477,6 +6224,9 @@ export default function JamSaaSApp() {
                 onEdit={(athlete) => { setForm({ ...athlete }); setAthleteModal({ open: true, item: athlete }); }}
                 onDelete={(athlete) => requestDelete("athlete", athlete)}
                 customFields={athleteCustomFields}
+                onStatusChange={(id, status) => updateEntityStatus("athletes", id, status)}
+                onFieldChange={updateAthleteField}
+                onOpenAttachments={openAttachmentViewer}
               />
             ) : (
               <KanbanBoard
@@ -4503,7 +6253,7 @@ export default function JamSaaSApp() {
             <div className="-mt-4 mb-5 flex justify-end">
               <ViewToggle options={tableKanbanOptions} value={clubViewMode} onChange={setClubViewMode} />
             </div>
-            <FilterBar withSport={false} statusOptions={CLUB_STATUS} />
+            {FilterBar({ withSport: false, statusOptions: CLUB_STATUS })}
             {clubViewMode === "table" ? (
               <EntityTable
                 rows={filteredClubs}
@@ -4512,10 +6262,7 @@ export default function JamSaaSApp() {
                 builtinCols={[
                   { key: "name", label: "Section", type: "texte", sortable: true },
                   { key: "status", label: "Statut", type: "statut", sortable: true, options: CLUB_STATUS,
-                    render: (c) => {
-                      const tone = c.status === "Validé" ? "Terminé" : c.status === "Inscrit" ? "En cours" : c.status === "Invité" ? "En attente" : "À faire";
-                      return <Badge className={badgeClass("status", tone)}>{c.status}</Badge>;
-                    } },
+                    badgeTone: (c) => c.status === "Validé" ? "Terminé" : c.status === "Inscrit" ? "En cours" : c.status === "Invité" ? "En attente" : "À faire" },
                   { key: "city", label: "Ville", type: "texte", sortable: true },
                   { key: "subSections", label: "Sous-sections", type: "texte", sortable: false,
                     accessor: (c) => (c.subSections || []).join(", "),
@@ -4532,6 +6279,8 @@ export default function JamSaaSApp() {
                 onEdit={handleEditSection}
                 onDelete={(club) => requestDelete("club", club)}
                 customFields={clubCustomFields}
+                onStatusChange={(id, status) => updateEntityStatus("clubs", id, status)}
+                onOpenAttachments={openAttachmentViewer}
               />
             ) : (
               <KanbanBoard
@@ -4585,7 +6334,7 @@ export default function JamSaaSApp() {
                 builtinCols={[
                   { key: "title", label: "Document", type: "texte", sortable: true },
                   { key: "status", label: "Statut", type: "statut", sortable: true, options: DOC_STATUS,
-                    render: (d) => <Badge className={badgeClass("status", d.status === "Publié" || d.status === "Validé" ? "Terminé" : d.status === "À valider" ? "En attente" : d.status === "Archivé" ? "À faire" : "En cours")}>{d.status}</Badge> },
+                    badgeTone: (d) => d.status === "Publié" || d.status === "Validé" ? "Terminé" : d.status === "À valider" ? "En attente" : d.status === "Archivé" ? "À faire" : "En cours" },
                   { key: "type", label: "Type", type: "statut", sortable: true,
                     render: (d) => d.type ? <Badge>{d.type}</Badge> : <span className="text-slate-400">—</span> },
                   { key: "sport", label: "Sport", type: "statut", sortable: true,
@@ -4603,6 +6352,8 @@ export default function JamSaaSApp() {
                 onEdit={(doc) => { setForm({ ...doc }); setDocModal({ open: true, item: doc }); }}
                 onDelete={(doc) => requestDelete("document", doc)}
                 customFields={documentCustomFields}
+                onStatusChange={(id, status) => updateEntityStatus("documents", id, status)}
+                onOpenAttachments={openAttachmentViewer}
               />
             ) : (
               <KanbanBoard
@@ -4628,7 +6379,7 @@ export default function JamSaaSApp() {
             <div className="-mt-4 mb-5 flex justify-end">
               <ViewToggle options={listKanbanOptions} value={convocationViewMode} onChange={setConvocationViewMode} />
             </div>
-            <FilterBar statusOptions={COMM_STATUS} />
+            {FilterBar({ statusOptions: COMM_STATUS })}
             {convocationViewMode === "list" ? (
               <div className="space-y-3">
                 {filteredConvocations.map((conv) => (
@@ -4682,7 +6433,7 @@ export default function JamSaaSApp() {
             <div className="-mt-4 mb-5 flex justify-end">
               <ViewToggle options={listKanbanOptions} value={notificationViewMode} onChange={setNotificationViewMode} />
             </div>
-            <FilterBar statusOptions={COMM_STATUS} />
+            {FilterBar({ statusOptions: COMM_STATUS })}
             {notificationViewMode === "list" ? (
               <div className="space-y-3">
                 {filteredNotifications.map((notif) => (
@@ -4692,6 +6443,7 @@ export default function JamSaaSApp() {
                         <div className="flex flex-wrap items-center gap-2 mb-1">
                           <h3 className="font-semibold">{notif.title}</h3>
                           <Badge className={badgeClass("status", notif.status === "Envoyée" ? "Terminé" : notif.status === "Prêt à envoyer" ? "En cours" : "À faire")}>{notif.status}</Badge>
+                          {notif.systemGenerated && <Badge className="bg-amber-50 text-amber-700 border-amber-200">Alerte automatique</Badge>}
                           {notif.channel && <Badge>{notif.channel}</Badge>}
                           <Badge>{sportName(notif.sport)}</Badge>
                         </div>
@@ -4702,10 +6454,12 @@ export default function JamSaaSApp() {
                         </div>
                         {notif.message && <p className="text-sm text-slate-600 mt-2 line-clamp-2">{notif.message}</p>}
                       </div>
-                      <ActionBtns
-                        onEdit={() => { setForm({ ...notif }); setNotifModal({ open: true, item: notif }); }}
-                        onDelete={() => requestDelete("notification", notif)}
-                      />
+                      {!notif.systemGenerated && (
+                        <ActionBtns
+                          onEdit={() => { setForm({ ...notif }); setNotifModal({ open: true, item: notif }); }}
+                          onDelete={() => requestDelete("notification", notif)}
+                        />
+                      )}
                     </div>
                   </Card>
                 ))}
@@ -4718,6 +6472,96 @@ export default function JamSaaSApp() {
                 onStatusChange={(id, status) => updateEntityStatus("notifications", id, status)}
                 renderCard={renderNotificationKanbanCard}
                 emptyLabel="Aucune notification."
+              />
+            )}
+          </div>
+        )}
+
+        {view === "archives" && (
+          <div className="p-6 max-w-7xl mx-auto">
+            <PageHeader
+              title="Archives"
+              subtitle="Consulte, modifie et réactive les projets et tâches sortis du flux principal."
+            />
+            <div className="mb-5 flex flex-wrap items-center gap-2">
+              {[
+                { id: "projects", label: `Projets archivés (${archivedProjects.length})` },
+                { id: "tasks", label: `Tâches archivées (${archivedTasks.length})` },
+              ].map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setArchiveEntity(option.id)}
+                  className={`rounded-2xl border px-4 py-2 text-sm font-semibold ${archiveEntity === option.id ? "border-slate-900 bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            {archiveEntity === "projects" ? (
+              <EntityTable
+                rows={archivedProjects}
+                nameKey="name"
+                emptyLabel="Aucun projet archivé."
+                builtinCols={[
+                  { key: "name", label: "Projet", type: "texte", sortable: true },
+                  { key: "sportName", label: "Sport", type: "texte", sortable: true, accessor: (project) => sportName(project.sport) },
+                  { key: "status", label: "Statut", type: "statut", sortable: true, options: STATUS_OPTIONS },
+                  { key: "owner", label: "Responsable", type: "personne", sortable: true },
+                  { key: "visibility", label: "Visible", type: "statut", sortable: true, options: ["Oui", "Non"] },
+                  { key: "endDate", label: "Échéance", type: "date", sortable: true },
+                  { key: "archivedAt", label: "Archivé le", type: "date", sortable: true },
+                ]}
+                config={data.tableConfig?.archivedProjects}
+                onConfigChange={(next) => setData((prev) => ({ ...prev, tableConfig: { ...(prev.tableConfig || {}), archivedProjects: next } }))}
+                onEdit={handleEditProject}
+                onUnarchive={(project) => toggleProjectArchived(project.id, false)}
+                onDelete={(project) => requestDelete("project", project)}
+                onStatusChange={updateProjectStatus}
+                onFieldChange={updateProjectField}
+                onOpenAttachments={openAttachmentViewer}
+              />
+            ) : (
+              <EntityTable
+                rows={archivedTasks}
+                nameKey="title"
+                emptyLabel="Aucune tâche archivée."
+                builtinCols={[
+                  { key: "title", label: "Tâche", type: "texte", sortable: true,
+                    render: (task) => (
+                      <button type="button" onClick={() => openTaskEditor(task)} className="flex items-center gap-2 text-left hover:underline">
+                        <span className="font-semibold text-slate-900">{task.title}</span>
+                        {normalizeAttachments(task.attachments).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); openAttachmentViewer(`Pièces jointes · ${task.title}`, task.attachments); }}
+                            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                            title="Voir les pièces jointes"
+                          >
+                            <Paperclip className="h-3 w-3" /> {normalizeAttachments(task.attachments).length}
+                          </button>
+                        )}
+                      </button>
+                    ) },
+                  { key: "status", label: "Statut", type: "statut", sortable: true, options: STATUS_OPTIONS },
+                  { key: "priority", label: "Priorité", type: "statut", sortable: true, options: PRIORITY_OPTIONS },
+                  { key: "attachmentsCount", label: "PJ", type: "nombre", sortable: true, accessor: (task) => normalizeAttachments(task.attachments).length },
+                  { key: "projectId", label: "Projet", type: "texte", sortable: true, accessor: (task) => workspaceProjects.find((project) => project.id === task.projectId)?.name || "—" },
+                  { key: "assignee", label: "Assigné", type: "personne", sortable: true },
+                  { key: "progress", label: "Avancement", type: "nombre", sortable: true, accessor: (task) => normalizeTaskProgress(task.progress, task.status) },
+                  { key: "archivedAt", label: "Archivé le", type: "date", sortable: true },
+                ]}
+                config={data.tableConfig?.archivedTasks}
+                onConfigChange={(next) => setData((prev) => ({ ...prev, tableConfig: { ...(prev.tableConfig || {}), archivedTasks: next } }))}
+                onEdit={(task) => openTaskEditor(task)}
+                onUnarchive={(task) => toggleTaskArchived(task.id, false)}
+                onDelete={(task) => requestDelete("task", task)}
+                onStatusChange={updateTaskStatus}
+                onPriorityChange={updateTaskPriority}
+                onProgressChange={updateTaskProgress}
+                onFieldChange={updateTaskField}
+                onOpenAttachments={openAttachmentViewer}
               />
             )}
           </div>
@@ -4764,17 +6608,83 @@ export default function JamSaaSApp() {
 
       {/* ===== MODALS ===== */}
 
+      <datalist id="people-options">
+        {peopleOptions.map((person) => <option key={person} value={person} />)}
+      </datalist>
+
+      <AttachmentViewerModal
+        open={attachmentViewer.open}
+        title={attachmentViewer.title}
+        attachments={attachmentViewer.attachments}
+        onClose={() => setAttachmentViewer({ open: false, title: "", attachments: [] })}
+      />
+
       {/* Project */}
       <Modal open={projectModal.open} title={projectModal.item ? "Modifier le projet" : "Nouveau projet"}
         onClose={() => { setProjectModal({ open: false, item: null }); setForm({}); }} onSave={saveProject}>
         <div className="grid md:grid-cols-2 gap-4">
           <input className="w-full rounded-2xl border px-4 py-3" placeholder="Nom du projet *" value={form.name || ""} onChange={(e) => f("name", e.target.value)} />
-          <input className="w-full rounded-2xl border px-4 py-3" placeholder="Responsable" value={form.owner || ""} onChange={(e) => f("owner", e.target.value)} />
+          <input list="people-options" className="w-full rounded-2xl border px-4 py-3" placeholder="Responsable" value={form.owner || ""} onChange={(e) => f("owner", e.target.value)} />
           <textarea className="w-full rounded-2xl border px-4 py-3 md:col-span-2 resize-none h-20" placeholder="Description" value={form.description || ""} onChange={(e) => f("description", e.target.value)} />
-          <select className="w-full rounded-2xl border px-4 py-3" value={form.sport || ""} onChange={(e) => f("sport", e.target.value)}>
-            <option value="">Sport</option>
-            {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <div className="md:col-span-2 rounded-2xl border bg-slate-50 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                {form.parentId ? "Sports concernés par l'axe analytique" : "Sport du projet"}
+              </p>
+              {form.parentId && (
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setForm((prev) => ({ ...prev, sports: allSports.map((sport) => sport.id) }))} className="rounded-xl border bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100">Tous</button>
+                  <button type="button" onClick={() => setForm((prev) => ({ ...prev, sports: [] }))} className="rounded-xl border bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100">Aucun</button>
+                </div>
+              )}
+            </div>
+
+            {form.parentId ? (
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {allSports.map((sport) => {
+                  const checked = (form.sports || []).includes(sport.id);
+                  return (
+                    <label key={sport.id} className={`flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium cursor-pointer transition ${checked ? "border-slate-900 bg-white text-slate-900" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleFormSport(sport.id)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      <span>{sport.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <select className="w-full rounded-2xl border bg-white px-4 py-3" value={form.sport || ""} onChange={(e) => f("sport", e.target.value)}>
+                <option value="">Sport</option>
+                {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
+
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded-2xl border bg-white px-4 py-3 text-sm"
+                placeholder="Créer un nouveau sport"
+                value={form.newSportName || ""}
+                onChange={(e) => f("newSportName", e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addInlineSport(form.parentId ? "sports" : "sport", Boolean(form.parentId)))}
+              />
+              <button
+                type="button"
+                onClick={() => addInlineSport(form.parentId ? "sports" : "sport", Boolean(form.parentId))}
+                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+              >
+                Ajouter sport
+              </button>
+            </div>
+          </div>
+          <ProjectCoverManager
+            coverImage={form.coverImage || ""}
+            onAddImage={addProjectCoverImage}
+            onRemoveImage={() => f("coverImage", "")}
+          />
           <div className="space-y-2 md:col-span-2 rounded-2xl border bg-slate-50 p-3">
             <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Organisation du projet</p>
             <div className="grid grid-cols-2 gap-2">
@@ -4784,7 +6694,7 @@ export default function JamSaaSApp() {
                 className={`rounded-2xl border px-3 py-3 text-left text-sm font-semibold ${!form.parentId ? "border-slate-900 bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}
               >
                 <span className="block">Projet principal</span>
-                <span className={`mt-1 block text-xs font-normal ${!form.parentId ? "text-slate-200" : "text-slate-500"}`}>Niveau racine</span>
+                <span className={`mt-1 block text-xs font-normal ${!form.parentId ? "text-slate-200" : "text-slate-500"}`}>Projet autonome</span>
               </button>
               <button
                 type="button"
@@ -4792,16 +6702,16 @@ export default function JamSaaSApp() {
                 onClick={() => f("parentId", form.parentId || projectParentChoices[0]?.id || null)}
                 className={`rounded-2xl border px-3 py-3 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${form.parentId ? "border-slate-900 bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}
               >
-                <span className="block">Sous-projet</span>
-                <span className={`mt-1 block text-xs font-normal ${form.parentId ? "text-slate-200" : "text-slate-500"}`}>Rattaché à un projet</span>
+                <span className="block">Axe analytique</span>
+                <span className={`mt-1 block text-xs font-normal ${form.parentId ? "text-slate-200" : "text-slate-500"}`}>Rattaché à un projet principal</span>
               </button>
             </div>
             {form.parentId && (
               <select className="w-full rounded-2xl border px-4 py-3" value={form.parentId || ""} onChange={(e) => f("parentId", e.target.value || null)}>
-                {projectParentChoices.map((p) => <option key={p.id} value={p.id}>Rattaché à : {p.name}</option>)}
+                {projectParentChoices.map((p) => <option key={p.id} value={p.id}>Rattaché au projet : {p.name}</option>)}
               </select>
             )}
-            {!hasAvailableProjectParent && <p className="text-xs text-slate-500">Crée d'abord un projet principal pour pouvoir créer un sous-projet.</p>}
+            {!hasAvailableProjectParent && <p className="text-xs text-slate-500">Crée d'abord un projet principal pour pouvoir créer un axe analytique.</p>}
           </div>
           <select className="w-full rounded-2xl border px-4 py-3" value={form.status || "À faire"} onChange={(e) => f("status", e.target.value)}>
             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -4809,8 +6719,20 @@ export default function JamSaaSApp() {
           <select className="w-full rounded-2xl border px-4 py-3" value={form.priority || "Moyenne"} onChange={(e) => f("priority", e.target.value)}>
             {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
+          <select className="w-full rounded-2xl border px-4 py-3" value={form.visibility || "Oui"} onChange={(e) => f("visibility", e.target.value)}>
+            <option value="Oui">Visible par tous : Oui</option>
+            <option value="Non">Projet confidentiel : Non</option>
+          </select>
           <input type="date" className="w-full rounded-2xl border px-4 py-3" value={form.startDate || ""} onChange={(e) => f("startDate", e.target.value)} />
           <input type="date" className="w-full rounded-2xl border px-4 py-3" value={form.endDate || ""} onChange={(e) => f("endDate", e.target.value)} />
+          <AttachmentManager
+            attachments={normalizeAttachments(form.attachments)}
+            onAddFiles={addAttachmentFiles}
+            onAddWhatsApp={addWhatsAppAttachment}
+            onRemove={removeAttachment}
+            whatsAppDraft={form.whatsAppDraft}
+            onWhatsAppDraftChange={updateWhatsAppDraft}
+          />
         </div>
         {projectCustomFields.length > 0 && (
           <div className="mt-4">
@@ -4826,11 +6748,40 @@ export default function JamSaaSApp() {
         <div className="grid md:grid-cols-2 gap-4">
           <input className="w-full rounded-2xl border px-4 py-3 md:col-span-2" placeholder="Titre *" value={form.title || ""} onChange={(e) => f("title", e.target.value)} />
           <textarea className="w-full rounded-2xl border px-4 py-3 md:col-span-2 resize-none h-16" placeholder="Description" value={form.description || ""} onChange={(e) => f("description", e.target.value)} />
-          <input className="w-full rounded-2xl border px-4 py-3" placeholder="Assigné à" value={form.assignee || ""} onChange={(e) => f("assignee", e.target.value)} />
-          <select className="w-full rounded-2xl border px-4 py-3" value={form.projectId || ""} onChange={(e) => f("projectId", e.target.value)}>
+          <input list="people-options" className="w-full rounded-2xl border px-4 py-3" placeholder="Assigné à" value={form.assignee || ""} onChange={(e) => f("assignee", e.target.value)} />
+          <select className="w-full rounded-2xl border px-4 py-3" value={form.projectId || ""} onChange={(e) => {
+            const projectId = e.target.value;
+            const project = workspaceProjects.find((item) => item.id === projectId);
+            setForm((prev) => ({ ...prev, projectId, sport: project?.sport || prev.sport || "" }));
+          }}>
             <option value="">Projet</option>
-            {data.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {wsProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
+          <div className="md:col-span-2 rounded-2xl border bg-slate-50 p-4 space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Sport lié à la tâche</p>
+            <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+              <select className="w-full rounded-2xl border bg-white px-4 py-3" value={form.sport || ""} onChange={(e) => f("sport", e.target.value)}>
+                <option value="">Sport</option>
+                {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <div className="flex gap-2 md:min-w-[320px]">
+                <input
+                  className="flex-1 rounded-2xl border bg-white px-4 py-3 text-sm"
+                  placeholder="Créer un nouveau sport"
+                  value={form.newSportName || ""}
+                  onChange={(e) => f("newSportName", e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addInlineSport("sport", false))}
+                />
+                <button
+                  type="button"
+                  onClick={() => addInlineSport("sport", false)}
+                  className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+                >
+                  Ajouter sport
+                </button>
+              </div>
+            </div>
+          </div>
           <select className="w-full rounded-2xl border px-4 py-3" value={form.status || "À faire"} onChange={(e) => f("status", e.target.value)}>
             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -4841,8 +6792,29 @@ export default function JamSaaSApp() {
           <input type="date" className="w-full rounded-2xl border px-4 py-3" value={form.endDate || ""} onChange={(e) => f("endDate", e.target.value)} />
           <div className="md:col-span-2">
             <label className="block text-sm text-slate-700 mb-2">Progression : <span className="font-semibold">{form.progress || 0}%</span></label>
-            <input type="range" min="0" max="100" className="w-full accent-slate-900" value={form.progress || 0} onChange={(e) => f("progress", Number(e.target.value))} />
+            <div className="flex items-center gap-3">
+              <input type="range" min="0" max="100" className="w-full accent-slate-900" value={form.progress || 0} onChange={(e) => setTaskFormProgress(Number(e.target.value))} />
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  className="w-20 rounded-2xl border px-3 py-2 text-right text-sm"
+                  value={form.progress || 0}
+                  onChange={(e) => setTaskFormProgress(Number(e.target.value))}
+                />
+                <span className="text-sm font-semibold text-slate-500">%</span>
+              </div>
+            </div>
           </div>
+          <AttachmentManager
+            attachments={normalizeAttachments(form.attachments)}
+            onAddFiles={addAttachmentFiles}
+            onAddWhatsApp={addWhatsAppAttachment}
+            onRemove={removeAttachment}
+            whatsAppDraft={form.whatsAppDraft}
+            onWhatsAppDraftChange={updateWhatsAppDraft}
+          />
         </div>
         {taskCustomFields.length > 0 && (
           <div className="mt-4">
@@ -4902,7 +6874,7 @@ export default function JamSaaSApp() {
         <div className="grid md:grid-cols-2 gap-4">
           <input className="w-full rounded-2xl border px-4 py-3 md:col-span-2" placeholder="Nom de la section *" value={form.name || ""} onChange={(e) => f("name", e.target.value)} />
           <input className="w-full rounded-2xl border px-4 py-3" placeholder="Lieu / ville" value={form.city || ""} onChange={(e) => f("city", e.target.value)} />
-          <input className="w-full rounded-2xl border px-4 py-3" placeholder="Responsable de section" value={form.contactName || ""} onChange={(e) => f("contactName", e.target.value)} />
+          <input list="people-options" className="w-full rounded-2xl border px-4 py-3" placeholder="Responsable de section" value={form.contactName || ""} onChange={(e) => f("contactName", e.target.value)} />
           <select className="w-full rounded-2xl border px-4 py-3" value={form.status || "À contacter"} onChange={(e) => f("status", e.target.value)}>
             {CLUB_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
