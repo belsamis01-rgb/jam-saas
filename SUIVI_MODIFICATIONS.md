@@ -103,6 +103,7 @@ Cela veut dire :
 
 - création de ce fichier `SUIVI_MODIFICATIONS.md` comme registre principal du projet
 - préparation d'un push GitHub propre en excluant les réglages purement locaux de `.claude`
+- nettoyage du dépôt après constat qu'un fichier de configuration locale `.claude/settings.local.json` a été poussé par erreur
 
 #### Modifications poussées / à pousser
 
@@ -111,6 +112,12 @@ Cela veut dire :
 - ajout de `RESTAURER.txt`
 - ajout de `SAUVEGARDES.txt`
 - mise à jour de `.gitignore` pour ignorer `.claude/settings.json`
+
+#### Ménage dépôt
+
+- retrait prévu de `.claude/settings.local.json` du suivi Git
+- conservation du fichier uniquement en local sur la machine
+- conservation de `.claude/launch.json` qui peut rester utile au projet
 
 ---
 
