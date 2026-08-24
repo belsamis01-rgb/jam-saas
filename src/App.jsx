@@ -37,6 +37,7 @@ import {
   PartyPopper,
   MoreHorizontal,
   Copy,
+  Menu,
   X,
   EyeOff,
   Layers,
@@ -67,6 +68,12 @@ const ATHLETE_PROFILE_OPTIONS = ["Homme", "Femme", "Junior"];
 const CLUB_STATUS = ["À contacter", "Invité", "Inscrit", "Validé"];
 const COMM_STATUS = ["Brouillon", "Prêt à envoyer", "Envoyée"];
 const CUSTOM_FIELD_TYPES = ["texte", "nombre", "pourcentage", "date", "financier", "statut", "case_a_cocher", "personne"];
+const CUSTOM_FIELD_TARGETS = [
+  { id: "projects", label: "Projets" },
+  { id: "tasks", label: "Tâches" },
+  { id: "athletes", label: "Athlètes" },
+  { id: "clubs", label: "Sections" },
+];
 const DASHBOARD_WIDGET_TYPES = [
   { id: "number", label: "Nombre" },
   { id: "bar", label: "Barres" },
@@ -209,6 +216,8 @@ const seedProjects = [
     endDate: "2026-05-30",
     durationDays: 90,
     parentId: null,
+    visibility: "Oui",
+    allowedUserIds: [],
     workspaceId: "ws_jam",
   },
   {
@@ -224,6 +233,8 @@ const seedProjects = [
     endDate: "2026-05-20",
     durationDays: 72,
     parentId: null,
+    visibility: "Oui",
+    allowedUserIds: [],
     workspaceId: "ws_jam",
   },
   {
@@ -239,6 +250,8 @@ const seedProjects = [
     endDate: "2026-04-30",
     durationDays: 56,
     parentId: null,
+    visibility: "Oui",
+    allowedUserIds: [],
     workspaceId: "ws_jam",
   },
 ];
@@ -246,6 +259,19 @@ const seedProjects = [
 const ROOT_ID = seedProjects[0].id;
 const LOG_ID = seedProjects[1].id;
 const PORTAL_ID = seedProjects[2].id;
+const USER_ROLE_OPTIONS = ["Administrateur", "Manager", "Utilisateur"];
+const defaultUsers = [
+  { id: "user_samy", name: "Samy", email: "samy@jam.local", role: "Administrateur", workspaceIds: ["ws_jam", "ws_propcept"] },
+  { id: "user_sonia", name: "Sonia", email: "sonia@jam.local", role: "Manager", workspaceIds: ["ws_jam"] },
+  { id: "user_thomas", name: "Thomas", email: "thomas@jam.local", role: "Utilisateur", workspaceIds: ["ws_jam"] },
+  { id: "user_jeremy", name: "Jérémy", email: "jeremy@jam.local", role: "Utilisateur", workspaceIds: ["ws_jam"] },
+];
+
+function normalizeProjectAccess(project, fallbackUserId = "user_samy") {
+  const allowedUserIds = Array.isArray(project?.allowedUserIds) ? project.allowedUserIds.filter(Boolean) : [];
+  if ((project?.visibility || "Oui") !== "Non") return allowedUserIds;
+  return Array.from(new Set(allowedUserIds.length ? allowedUserIds : [fallbackUserId]));
+}
 
 const defaultData = {
   workspaces: [
@@ -253,6 +279,8 @@ const defaultData = {
     { id: "ws_propcept", name: "Propcept Event", color: "#7c3aed", initial: "P" },
   ],
   currentWorkspaceId: "ws_jam",
+  users: defaultUsers,
+  currentUserId: "user_samy",
   customFields: [
     { id: uid(), name: "Budget prévisionnel", type: "financier", appliesTo: ["projects"], position: "right" },
     { id: uid(), name: "Date de clôture", type: "date", appliesTo: ["projects", "tasks"], position: "right" },
@@ -305,6 +333,8 @@ const defaultData = {
       endDate: "2026-04-15",
       durationDays: 31,
       parentId: ROOT_ID,
+      visibility: "Oui",
+      allowedUserIds: [],
       workspaceId: "ws_jam",
     },
     {
@@ -320,6 +350,8 @@ const defaultData = {
       endDate: "2026-05-15",
       durationDays: 25,
       parentId: ROOT_ID,
+      visibility: "Oui",
+      allowedUserIds: [],
       workspaceId: "ws_jam",
     },
     {
@@ -335,6 +367,8 @@ const defaultData = {
       endDate: "2026-05-10",
       durationDays: 39,
       parentId: LOG_ID,
+      visibility: "Oui",
+      allowedUserIds: [],
       workspaceId: "ws_jam",
     },
     {
@@ -350,6 +384,8 @@ const defaultData = {
       endDate: "2026-04-25",
       durationDays: 36,
       parentId: PORTAL_ID,
+      visibility: "Oui",
+      allowedUserIds: [],
       workspaceId: "ws_jam",
     },
   ],
@@ -445,15 +481,27 @@ function loadData() {
         category: categoryIsProfile ? legacyCategory : "",
       };
     });
+    const users = (parsed.users || defaultUsers).map((user) => {
+      const workspaceIds = Array.isArray(user.workspaceIds) && user.workspaceIds.length ? user.workspaceIds : ["ws_jam"];
+      const role = USER_ROLE_OPTIONS.includes(user.role) ? user.role : "Utilisateur";
+      return { ...user, workspaceIds, role };
+    });
+    const currentUserId = parsed.currentUserId || users[0]?.id || "user_samy";
     return {
       ...defaultData,
       ...parsed,
+      users,
+      currentUserId,
       customFields: (parsed.customFields || defaultData.customFields).map((field) =>
         field.name === "Date comité" ? { ...field, name: "Date de clôture" } : field
       ),
       workspaces: parsed.workspaces || defaultData.workspaces,
       currentWorkspaceId: parsed.currentWorkspaceId || "ws_jam",
-      projects: addWs(parsed.projects || defaultData.projects),
+      projects: addWs(parsed.projects || defaultData.projects).map((project) => ({
+        ...project,
+        visibility: project.visibility || "Oui",
+        allowedUserIds: normalizeProjectAccess(project, currentUserId),
+      })),
       tasks: addWs(parsed.tasks || defaultData.tasks),
       athletes,
       clubs,
@@ -913,13 +961,13 @@ function ProgressBar({ value, label }) {
 
 function ViewToggle({ options, value, onChange }) {
   return (
-    <div className="inline-flex gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+    <div className="flex w-full flex-wrap gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm sm:inline-flex sm:w-auto">
       {options.map(({ id, label, Icon }) => (
         <button
           key={id}
           type="button"
           onClick={() => onChange(id)}
-          className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors ${value === id ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"}`}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition-colors sm:flex-none ${value === id ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"}`}
         >
           <Icon className="w-4 h-4" /> {label}
         </button>
@@ -1022,13 +1070,13 @@ function StatCard({ title, value, subtitle, Icon, tone = "slate", onClick }) {
     <>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-slate-500">{title}</p>
-          <p className="mt-3 truncate text-4xl font-bold tracking-tight text-slate-950">{value}</p>
+          <p className="text-sm font-semibold text-slate-500 sm:text-base">{title}</p>
+          <p className="mt-2 truncate text-3xl font-bold tracking-tight text-slate-950 sm:mt-3 sm:text-4xl">{value}</p>
           <p className="mt-2 text-sm text-slate-500">{subtitle}</p>
         </div>
-        <div className={`rounded-2xl p-3 ${tones[tone] || tones.slate}`}><Icon className="w-5 h-5" /></div>
+        <div className={`rounded-2xl p-3 ${tones[tone] || tones.slate} sm:p-3.5`}><Icon className="h-5 w-5" /></div>
       </div>
-      {onClick && <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Ouvrir le tableau</p>}
+      {onClick && <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 sm:text-[11px] sm:tracking-[0.16em]">Ouvrir le tableau</p>}
     </>
   );
   if (onClick) {
@@ -1036,7 +1084,7 @@ function StatCard({ title, value, subtitle, Icon, tone = "slate", onClick }) {
       <button
         type="button"
         onClick={onClick}
-        className="group w-full rounded-[28px] border border-slate-200/80 bg-white p-5 text-left shadow-[0_12px_30px_-18px_rgba(15,23,42,0.22)] transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900/20"
+        className="group w-full rounded-[28px] border border-slate-200/80 bg-white p-4 text-left shadow-[0_12px_30px_-18px_rgba(15,23,42,0.22)] transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900/20 sm:p-5"
       >
         {content}
       </button>
@@ -1113,7 +1161,7 @@ function CustomFieldsEditor({ fields, values, onChange }) {
               min={field.type === "pourcentage" ? "0" : undefined}
               max={field.type === "pourcentage" ? "100" : undefined}
               className="w-full rounded-2xl border px-4 py-3"
-              placeholder={field.type === "date" ? "" : field.name}
+              placeholder={field.type === "date" ? "" : field.type === "personne" ? (field.placeholder || `Ex : ${field.name}`) : field.name}
               value={value}
               onChange={(e) => onChange(field.id, e.target.value)}
             />
@@ -1374,6 +1422,41 @@ const COL_TYPES = [
   { id: "personne", label: "Personne" },
 ];
 
+const ADD_COLUMN_HINTS = {
+  texte: {
+    placeholder: "Ex : Commentaire interne",
+    helper: "Choisis librement le titre de la colonne.",
+  },
+  nombre: {
+    placeholder: "Ex : Volume prévisionnel",
+    helper: "Utile pour des quantités, compteurs ou charges.",
+  },
+  pourcentage: {
+    placeholder: "Ex : Taux d'avancement",
+    helper: "Parfait pour un suivi en pourcentage de 0 à 100.",
+  },
+  date: {
+    placeholder: "Ex : Date de validation",
+    helper: "Pratique pour les échéances, relances et dates clés.",
+  },
+  financier: {
+    placeholder: "Ex : Budget complémentaire",
+    helper: "Le montant sera affiché automatiquement en euros.",
+  },
+  statut: {
+    placeholder: "Ex : Validation comité",
+    helper: "Ajoute une colonne de statut complémentaire au suivi principal.",
+  },
+  case_a_cocher: {
+    placeholder: "Ex : Validé par le bureau",
+    helper: "Tu peux personnaliser le texte affiché si la case est cochée ou non.",
+  },
+  personne: {
+    placeholder: "Ex : Responsable logistique",
+    helper: "Idéal pour un référent, un contact ou un propriétaire secondaire.",
+  },
+};
+
 const COL_TYPE_STYLES = {
   texte: { badge: "T", className: "bg-amber-400 text-white" },
   nombre: { badge: "123", className: "bg-yellow-400 text-white text-[10px]" },
@@ -1490,25 +1573,59 @@ function ColumnFilterUI({ col, filter, onChange }) {
 function AddColumnModal({ open, onClose, onCreate, position }) {
   const [name, setName] = useState("");
   const [type, setType] = useState("texte");
+  const [checkedLabel, setCheckedLabel] = useState("Oui");
+  const [uncheckedLabel, setUncheckedLabel] = useState("Non");
+  const [personPlaceholder, setPersonPlaceholder] = useState("");
+  const inputRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setType("texte");
+    setCheckedLabel("Oui");
+    setUncheckedLabel("Non");
+    setPersonPlaceholder("");
+  }, [open]);
   if (!open) return null;
+  const activeHint = ADD_COLUMN_HINTS[type] || ADD_COLUMN_HINTS.texte;
+  const handleTypeSelect = (nextType) => {
+    setType(nextType);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const handleCreate = () => {
+    const payload = { name: name.trim(), type };
+    if (type === "case_a_cocher") {
+      payload.checkedLabel = checkedLabel.trim() || "Oui";
+      payload.uncheckedLabel = uncheckedLabel.trim() || "Non";
+    }
+    if (type === "personne" && personPlaceholder.trim()) {
+      payload.placeholder = personPlaceholder.trim();
+    }
+    onCreate(payload);
+    setName("");
+    setType("texte");
+    setCheckedLabel("Oui");
+    setUncheckedLabel("Non");
+    setPersonPlaceholder("");
+  };
   return (
     <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-4 border-b flex items-center justify-between">
           <h3 className="font-bold">Ajout de colonne {position === "left" ? "à gauche" : position === "right" ? "à droite" : ""}</h3>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
+          <button type="button" onClick={onClose}><X className="w-5 h-5" /></button>
         </div>
         <div className="p-5 space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">Nom</label>
-            <input autoFocus type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex : Budget"
+            <input ref={inputRef} autoFocus type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={activeHint.placeholder}
               className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
+            <p className="mt-1.5 text-xs text-slate-500">{activeHint.helper}</p>
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">Type</label>
             <div className="grid grid-cols-2 gap-2">
               {COL_TYPES.map((t) => (
-                <button key={t.id} onClick={() => setType(t.id)}
+                <button key={t.id} type="button" onClick={() => handleTypeSelect(t.id)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm text-left ${type === t.id ? "bg-slate-900 text-white border-slate-900" : "hover:bg-slate-50"}`}>
                   <ColumnTypeMark type={t.id} />
                   <span>{t.label}</span>
@@ -1516,10 +1633,46 @@ function AddColumnModal({ open, onClose, onCreate, position }) {
               ))}
             </div>
           </div>
+          {type === "case_a_cocher" && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Texte si coché</span>
+                <input
+                  type="text"
+                  value={checkedLabel}
+                  onChange={(e) => setCheckedLabel(e.target.value)}
+                  placeholder="Ex : Oui"
+                  className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Texte si non coché</span>
+                <input
+                  type="text"
+                  value={uncheckedLabel}
+                  onChange={(e) => setUncheckedLabel(e.target.value)}
+                  placeholder="Ex : Non"
+                  className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+                />
+              </label>
+            </div>
+          )}
+          {type === "personne" && (
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Texte d'aide dans la cellule</span>
+              <input
+                type="text"
+                value={personPlaceholder}
+                onChange={(e) => setPersonPlaceholder(e.target.value)}
+                placeholder="Ex : Choisir un référent"
+                className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              />
+            </label>
+          )}
         </div>
         <div className="px-5 py-4 border-t flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold hover:bg-slate-100">Annuler</button>
-          <button disabled={!name.trim()} onClick={() => { onCreate({ name: name.trim(), type }); setName(""); setType("texte"); }}
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold hover:bg-slate-100">Annuler</button>
+          <button type="button" disabled={!name.trim()} onClick={handleCreate}
             className="px-4 py-2 rounded-xl text-sm font-semibold bg-slate-900 text-white disabled:opacity-40">Créer</button>
         </div>
       </div>
@@ -1634,7 +1787,7 @@ function ImportPreviewModal({ preview, onClose, onConfirm, onTabChange }) {
 }
 
 // ===== Generic flat EntityTable (Tasks, Athletes, Clubs, Documents) =====
-function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDelete, onArchive, onUnarchive, nameKey = "name", emptyLabel = "Aucun élément.", customFields = [], onStatusChange, onPriorityChange, onProgressChange, onFieldChange, onOpenAttachments }) {
+function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDelete, onArchive, onUnarchive, nameKey = "name", emptyLabel = "Aucun élément.", customFields = [], onStatusChange, onPriorityChange, onProgressChange, onFieldChange, onOpenAttachments, allowRootColumnEditing = true }) {
   const [openColMenu, setOpenColMenu] = useState(null);
   const [submenu, setSubmenu] = useState(null);
   const [addColModal, setAddColModal] = useState(null);
@@ -1720,11 +1873,11 @@ function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDele
   };
   const setGroupBy = (key) => setCfg({ groupBy: cfg.groupBy === key ? null : key });
   const handleSort = (key, dir) => { setCfg({ sortCol: key, sortDir: dir }); closeMenu(); };
-  const addColumn = ({ name, type }) => {
+  const addColumn = ({ name, type, ...meta }) => {
     const newKey = "cf_" + uid().slice(0, 8);
     const anchor = addColModal?.anchorKey;
     setCfg((c) => {
-      const existing = [...(c.customCols || []), { key: newKey, label: name, type }];
+      const existing = [...(c.customCols || []), { key: newKey, label: name, type, ...meta }];
       let order = c.order?.length ? [...c.order] : allCols.map((x) => x.key);
       if (anchor) {
         const idx = order.indexOf(anchor);
@@ -1853,7 +2006,7 @@ function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDele
       ) : <Badge className={badgeClass("status", toneValue)}>{v}</Badge>;
     }
     if (col.render) return col.render(row);
-    if (col.type === "case_a_cocher") return <span>{v ? "✓" : "—"}</span>;
+    if (col.type === "case_a_cocher") return <span>{v === true ? (col.checkedLabel || "Oui") : v === false ? (col.uncheckedLabel || "Non") : "—"}</span>;
     if (col.type === "financier" || col.type === "nombre" || col.type === "pourcentage") return <span className="text-slate-700">{formatCustomFieldValue(col.type, v)}</span>;
     if (col.key === "priority" && v && col.options) {
       return onPriorityChange ? (
@@ -1910,10 +2063,18 @@ function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDele
               <button onClick={() => { duplicateColumn(col.key); closeMenu(); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
                 <Copy className="w-4 h-4 text-slate-400" /> Dupliquer la colonne
               </button>
-              <button onClick={() => { setAddColModal({ position: "left", anchorKey: col.key }); closeMenu(); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+              <button onClick={() => {
+                if (!allowRootColumnEditing) return;
+                setAddColModal({ position: "left", anchorKey: col.key });
+                closeMenu();
+              }} className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${allowRootColumnEditing ? "hover:bg-slate-50" : "text-slate-300 cursor-not-allowed"}`}>
                 <Plus className="w-4 h-4 text-slate-400" /> Ajouter une colonne à gauche
               </button>
-              <button onClick={() => { setAddColModal({ position: "right", anchorKey: col.key }); closeMenu(); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+              <button onClick={() => {
+                if (!allowRootColumnEditing) return;
+                setAddColModal({ position: "right", anchorKey: col.key });
+                closeMenu();
+              }} className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${allowRootColumnEditing ? "hover:bg-slate-50" : "text-slate-300 cursor-not-allowed"}`}>
                 <Plus className="w-4 h-4 text-slate-400" /> Ajouter une colonne à droite
               </button>
               <div className="relative">
@@ -1957,15 +2118,17 @@ function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDele
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <button
-          type="button"
-          onClick={() => setAddColModal({ position: "right", anchorKey: visibleCols[visibleCols.length - 1]?.key })}
-          className="inline-flex items-center gap-2 rounded-2xl border bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-        >
-          <Plus className="w-4 h-4" /> Ajouter une colonne
-        </button>
-      </div>
+      {allowRootColumnEditing && (
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={() => setAddColModal({ position: "right", anchorKey: visibleCols[visibleCols.length - 1]?.key })}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 sm:w-auto sm:py-2"
+          >
+            <Plus className="w-4 h-4" /> Ajouter une colonne
+          </button>
+        </div>
+      )}
 
       {(activeFilters.length > 0 || cfg.groupBy || (cfg.hiddenCols || []).length > 0) && (
         <div className="flex flex-wrap gap-2 mb-3">
@@ -2000,10 +2163,12 @@ function EntityTable({ rows, builtinCols, config, onConfigChange, onEdit, onDele
             <tr className="border-b bg-slate-50">
               {visibleCols.map((col) => <ColHeader key={col.key} col={col} />)}
               <th className="py-3 px-3 w-10">
-                <button onClick={(e) => { e.stopPropagation(); setAddColModal({ position: "right", anchorKey: visibleCols[visibleCols.length - 1]?.key }); }}
-                  className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500" title="Ajouter une colonne">
-                  <Plus className="w-4 h-4" />
-                </button>
+                {allowRootColumnEditing ? (
+                  <button onClick={(e) => { e.stopPropagation(); setAddColModal({ position: "right", anchorKey: visibleCols[visibleCols.length - 1]?.key }); }}
+                    className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500" title="Ajouter une colonne">
+                    <Plus className="w-4 h-4" />
+                  </button>
+                ) : null}
               </th>
               <th className="w-20" />
             </tr>
@@ -2287,7 +2452,7 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
         </button>
       ) : <span className="text-slate-300">—</span>;
     }
-    if (col.type === "case_a_cocher") return <span>{v ? "✓" : "—"}</span>;
+    if (col.type === "case_a_cocher") return <span>{v === true ? (col.checkedLabel || "Oui") : v === false ? (col.uncheckedLabel || "Non") : "—"}</span>;
     if (col.type === "financier" || col.type === "nombre" || col.type === "pourcentage") return <span className="text-slate-700">{formatCustomFieldValue(col.type, v)}</span>;
     if (col.key === "status" && v) return (
       <button
@@ -2328,9 +2493,9 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
     setCfg((c) => ({ ...c, customCols: (c.customCols || []).filter((x) => x.key !== key) }));
   };
   const setGroupBy = (key) => setCfg({ groupBy: cfg.groupBy === key ? null : key });
-  const addColumn = ({ name, type }) => {
+  const addColumn = ({ name, type, ...meta }) => {
     const newKey = "cf_" + uid().slice(0, 8);
-    const newCol = { key: newKey, label: name, type };
+    const newCol = { key: newKey, label: name, type, ...meta };
     const anchor = addColModal?.anchorKey;
     setCfg((c) => {
       const existing = [...(c.customCols || []), newCol];
@@ -2620,9 +2785,9 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
               <p className="text-xs text-slate-500">{filtered.length} projet{filtered.length > 1 ? "s" : ""} · {visibleTaskCount} tâche{visibleTaskCount > 1 ? "s" : ""} · {completedCount} terminé{completedCount > 1 ? "s" : ""}</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             {selectedCount > 0 && (
-              <button onClick={clearSelection} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+              <button onClick={clearSelection} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 sm:w-auto sm:py-2">
                 {selectedCount} sélectionné{selectedCount > 1 ? "s" : ""}
                 <X className="w-4 h-4" />
               </button>
@@ -2630,14 +2795,14 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
             <button
               type="button"
               onClick={() => setCfg({ hiddenCols: [] })}
-              className="inline-flex items-center gap-2 rounded-2xl border bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border bg-white px-3 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:w-auto sm:py-2"
             >
               <EyeOff className="w-4 h-4" /> Afficher colonnes
             </button>
             <button
               type="button"
               onClick={() => setAddColModal({ position: "right", anchorKey: visibleCols[visibleCols.length - 1]?.key })}
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 sm:w-auto sm:py-2"
             >
               <Plus className="w-4 h-4" /> Ajouter colonne
             </button>
@@ -3223,6 +3388,7 @@ function WorkspaceSelector({ workspaces, currentWorkspaceId, onChange, onNew }) 
 export default function JamSaaSApp() {
   const [data, setData] = useState(loadData);
   const [view, setView] = useState("dashboard");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [expanded, setExpanded] = useState({});
 
   // Filters
@@ -3263,6 +3429,7 @@ export default function JamSaaSApp() {
 
   // Form state
   const [form, setForm] = useState({});
+  const [cfForm, setCfForm] = useState({});
   const [newSportName, setNewSportName] = useState("");
   const [globalColumnModal, setGlobalColumnModal] = useState(null);
   const [importPreview, setImportPreview] = useState(null);
@@ -3325,6 +3492,14 @@ export default function JamSaaSApp() {
   const fcf = (id, val) => setForm((prev) => ({ ...prev, customFieldValues: { ...prev.customFieldValues, [id]: val } }));
   const updateWhatsAppDraft = (key, value) => {
     setForm((prev) => ({ ...prev, whatsAppDraft: { ...(prev.whatsAppDraft || {}), [key]: value } }));
+  };
+  const toggleFormAllowedUser = (userId) => {
+    setForm((prev) => {
+      const nextAllowed = new Set(normalizeProjectAccess(prev, currentUser?.id));
+      if (nextAllowed.has(userId)) nextAllowed.delete(userId);
+      else nextAllowed.add(userId);
+      return { ...prev, allowedUserIds: Array.from(nextAllowed) };
+    });
   };
   const openAttachmentViewer = (title, attachments) => {
     const safeAttachments = normalizeAttachments(attachments);
@@ -3420,6 +3595,23 @@ export default function JamSaaSApp() {
       newSportName: "",
     }));
   };
+  const addPendingAxis = () => {
+    const rawName = String(form.newAxisName || "").trim();
+    if (!rawName) return;
+    setForm((prev) => {
+      const current = Array.isArray(prev.pendingAxes) ? prev.pendingAxes : [];
+      if (current.some((axisName) => normalizeKey(axisName) === normalizeKey(rawName))) {
+        return { ...prev, newAxisName: "" };
+      }
+      return { ...prev, pendingAxes: [...current, rawName], newAxisName: "" };
+    });
+  };
+  const removePendingAxis = (axisName) => {
+    setForm((prev) => ({
+      ...prev,
+      pendingAxes: (prev.pendingAxes || []).filter((item) => item !== axisName),
+    }));
+  };
   const setTaskFormProgress = (value) => {
     const progress = clampProgress(value);
     setForm((prev) => ({ ...prev, progress, status: statusFromProgress(progress, prev.status || "À faire") }));
@@ -3431,6 +3623,7 @@ export default function JamSaaSApp() {
   };
   const goToView = (nextView) => {
     setView(nextView);
+    setMobileNavOpen(false);
     if (nextView !== "dashboardData") setDashboardDrilldown(null);
     resetFilters();
   };
@@ -3458,8 +3651,11 @@ export default function JamSaaSApp() {
     setForm({
       ...item,
       visibility: item.visibility || "Oui",
+      allowedUserIds: normalizeProjectAccess(item, currentUser?.id),
       coverImage: item.coverImage || "",
       sports: Array.isArray(item.sports) ? item.sports : (item.parentId && item.sport ? [item.sport] : []),
+      pendingAxes: [],
+      newAxisName: "",
       customFieldValues: { ...defaultFinancialValues(projectCustomFields), ...(item.customFieldValues || {}) },
       attachments: normalizeAttachments(item.attachments),
       whatsAppDraft: { title: "", message: "", url: "" },
@@ -3488,21 +3684,52 @@ export default function JamSaaSApp() {
   const saveProject = () => {
     const parentId = form.parentId && parentOptionsForProject(form.id, data.projects).some((project) => project.id === form.parentId) ? form.parentId : null;
     const selectedSports = parentId ? Array.from(new Set((form.sports || []).filter(Boolean))) : [];
+    const projectId = form.id || uid();
     const item = {
       workspaceId: currentWsId,
       ...form,
       parentId,
-      id: form.id || uid(),
+      id: projectId,
       sport: parentId ? (selectedSports[0] || form.sport || allSports[0]?.id || "developpe_couche") : (form.sport || allSports[0]?.id || "developpe_couche"),
       sports: selectedSports,
       visibility: form.visibility || "Oui",
+      allowedUserIds: normalizeProjectAccess({ visibility: form.visibility || "Oui", allowedUserIds: form.allowedUserIds }, currentUser?.id),
       archived: Boolean(form.archived),
       coverImage: form.coverImage || "",
       attachments: normalizeAttachments(form.attachments),
       durationDays: daysBetween(form.startDate, form.endDate),
       customFieldValues: { ...defaultFinancialValues(projectCustomFields), ...(form.customFieldValues || {}) },
     };
-    upd("projects", (arr) => form.id ? arr.map((p) => p.id === form.id ? item : p) : [...arr, item]);
+    const pendingAxes = !parentId ? (form.pendingAxes || []).filter(Boolean) : [];
+    upd("projects", (arr) => {
+      const nextProjects = form.id ? arr.map((p) => p.id === form.id ? item : p) : [...arr, item];
+      if (!pendingAxes.length) return nextProjects;
+      const existingByParent = nextProjects.filter((project) => project.parentId === projectId);
+      const createdAxes = pendingAxes
+        .filter((axisName) => !existingByParent.some((project) => normalizeKey(project.name) === normalizeKey(axisName)))
+        .map((axisName) => ({
+          workspaceId: currentWsId,
+          id: uid(),
+          name: axisName,
+          description: "",
+          owner: item.owner || "",
+          parentId: projectId,
+          sport: item.sport,
+          sports: item.sports?.length ? item.sports : [item.sport].filter(Boolean),
+          status: "À faire",
+          priority: "Moyenne",
+          visibility: item.visibility || "Oui",
+          allowedUserIds: normalizeProjectAccess(item, currentUser?.id),
+          archived: false,
+          coverImage: "",
+          attachments: [],
+          startDate: item.startDate || "",
+          endDate: item.endDate || "",
+          durationDays: daysBetween(item.startDate, item.endDate),
+          customFieldValues: { ...defaultFinancialValues(projectCustomFields) },
+        }));
+      return [...nextProjects, ...createdAxes];
+    });
     setProjectModal({ open: false, item: null }); setForm({});
   };
 
@@ -3565,10 +3792,34 @@ export default function JamSaaSApp() {
     setNotifModal({ open: false, item: null }); setForm({});
   };
 
+  const openScopedCustomFieldModal = (target) => {
+    setCfForm({
+      name: "",
+      type: "texte",
+      appliesTo: [target],
+      checkedLabel: "Oui",
+      uncheckedLabel: "Non",
+      placeholder: "",
+    });
+    setCfModal({ open: true, item: null });
+  };
+
   const saveCF = () => {
-    const item = { ...form, id: form.id || uid(), appliesTo: form.appliesTo || ["projects"] };
-    upd("customFields", (arr) => form.id ? arr.map((x) => x.id === form.id ? item : x) : [...arr, item]);
-    setCfModal({ open: false, item: null }); setForm({});
+    const item = {
+      ...cfForm,
+      id: cfForm.id || uid(),
+      appliesTo: cfForm.appliesTo || ["projects"],
+      checkedLabel: (cfForm.type || "texte") === "case_a_cocher" ? (cfForm.checkedLabel?.trim() || "Oui") : cfForm.checkedLabel,
+      uncheckedLabel: (cfForm.type || "texte") === "case_a_cocher" ? (cfForm.uncheckedLabel?.trim() || "Non") : cfForm.uncheckedLabel,
+      placeholder: (cfForm.type || "texte") === "personne" ? (cfForm.placeholder?.trim() || "Choisir un référent") : cfForm.placeholder,
+    };
+    upd("customFields", (arr) => cfForm.id ? arr.map((x) => x.id === cfForm.id ? item : x) : [...arr, item]);
+    setForm((prev) => ({
+      ...prev,
+      customFieldValues: { ...(prev.customFieldValues || {}), [item.id]: prev.customFieldValues?.[item.id] ?? "" },
+    }));
+    setCfModal({ open: false, item: null });
+    setCfForm({});
   };
 
   const addSport = () => {
@@ -3580,7 +3831,21 @@ export default function JamSaaSApp() {
   };
 
   const currentWsId = data.currentWorkspaceId || "ws_jam";
+  const currentWs = (data.workspaces || []).find((ws) => ws.id === currentWsId) || data.workspaces?.[0] || null;
+  const currentUser = (data.users || []).find((user) => user.id === data.currentUserId) || data.users?.[0] || defaultUsers[0];
+  const isAdmin = currentUser?.role === "Administrateur";
+  const workspaceUsers = useMemo(
+    () => (data.users || []).filter((user) => (user.workspaceIds || []).includes(currentWsId)),
+    [data.users, currentWsId]
+  );
   const switchWorkspace = (wsId) => setData((prev) => ({ ...prev, currentWorkspaceId: wsId }));
+  const switchCurrentUser = (userId) => setData((prev) => ({ ...prev, currentUserId: userId }));
+  const updateUserRole = (userId, role) => {
+    setData((prev) => ({
+      ...prev,
+      users: (prev.users || []).map((user) => user.id === userId ? { ...user, role } : user),
+    }));
+  };
   const saveWorkspace = () => {
     if (!wsForm.name?.trim()) return;
     const ws = { id: uid(), name: wsForm.name.trim(), color: wsForm.color || "#0f172a", initial: (wsForm.name.trim()[0] || "W").toUpperCase() };
@@ -3665,6 +3930,9 @@ export default function JamSaaSApp() {
     upd("projects", (arr) => arr.map((project) => {
       if (project.id !== id) return project;
       const next = { ...project, [key]: value };
+      if (key === "visibility") {
+        next.allowedUserIds = normalizeProjectAccess({ ...project, visibility: value }, currentUser?.id);
+      }
       if (key === "startDate" || key === "endDate") {
         next.durationDays = daysBetween(key === "startDate" ? value : next.startDate, key === "endDate" ? value : next.endDate);
       }
@@ -3698,9 +3966,23 @@ export default function JamSaaSApp() {
     upd(key, (arr) => arr.map((item) => item.id === id ? { ...item, status } : item));
   };
 
+  const canAccessProject = (project) => {
+    if (!project || project.workspaceId !== currentWsId) return false;
+    if (isAdmin) return true;
+    if ((project.visibility || "Oui") !== "Non") return true;
+    if (normalizeKey(project.owner || "") === normalizeKey(currentUser?.name || "")) return true;
+    return normalizeProjectAccess(project, currentUser?.id).includes(currentUser?.id);
+  };
+
   // Enriched + filtered data (workspace-scoped)
-  const workspaceProjects = useMemo(() => data.projects.filter((p) => p.workspaceId === currentWsId), [data.projects, currentWsId]);
-  const workspaceTasks = useMemo(() => data.tasks.filter((t) => t.workspaceId === currentWsId), [data.tasks, currentWsId]);
+  const rawWorkspaceProjects = useMemo(() => data.projects.filter((p) => p.workspaceId === currentWsId), [data.projects, currentWsId]);
+  const workspaceProjects = useMemo(() => rawWorkspaceProjects.filter((project) => canAccessProject(project)), [rawWorkspaceProjects, currentWsId, currentUser?.id, currentUser?.name, isAdmin]);
+  const visibleProjectIds = useMemo(() => new Set(workspaceProjects.map((project) => project.id)), [workspaceProjects]);
+  const rawWorkspaceTasks = useMemo(() => data.tasks.filter((t) => t.workspaceId === currentWsId), [data.tasks, currentWsId]);
+  const workspaceTasks = useMemo(
+    () => rawWorkspaceTasks.filter((task) => !task.projectId || visibleProjectIds.has(task.projectId)),
+    [rawWorkspaceTasks, visibleProjectIds]
+  );
   const wsProjects = useMemo(() => workspaceProjects.filter((project) => !project.archived), [workspaceProjects]);
   const wsTasks = useMemo(() => workspaceTasks.filter((task) => !task.archived), [workspaceTasks]);
   const archivedProjects = useMemo(() => workspaceProjects.filter((project) => project.archived), [workspaceProjects]);
@@ -3771,11 +4053,12 @@ export default function JamSaaSApp() {
   const wsConvocations = useMemo(() => data.convocations.filter((c) => c.workspaceId === currentWsId), [data.convocations, currentWsId]);
   const wsNotifications = useMemo(() => data.notifications.filter((n) => n.workspaceId === currentWsId), [data.notifications, currentWsId]);
   const peopleOptions = useMemo(() => Array.from(new Set([
+    ...(data.users || []).map((user) => user.name),
     ...workspaceProjects.map((project) => project.owner),
     ...workspaceTasks.map((task) => task.assignee),
     ...wsClubs.map((club) => club.contactName),
     ...wsAthletes.map((athlete) => athlete.coach),
-  ].filter(Boolean))).sort((a, b) => a.localeCompare(b)), [workspaceProjects, workspaceTasks, wsClubs, wsAthletes]);
+  ].filter(Boolean))).sort((a, b) => a.localeCompare(b)), [data.users, workspaceProjects, workspaceTasks, wsClubs, wsAthletes]);
 
   const filteredDocs = useMemo(() => wsDocs.filter((d) => {
     if (filterSport !== "all" && d.sport !== filterSport) return false;
@@ -3799,7 +4082,7 @@ export default function JamSaaSApp() {
   const projectParentChoices = parentOptionsForProject(form.id, wsProjects);
   const hasAvailableProjectParent = projectParentChoices.length > 0;
   const openNewProjectModal = () => {
-    setForm({ status: "À faire", priority: "Moyenne", visibility: "Oui", sport: allSports[0]?.id || "developpe_couche", sports: [], parentId: null, coverImage: "", customFieldValues: defaultFinancialValues(projectCustomFields), attachments: [], whatsAppDraft: { title: "", message: "", url: "" } });
+    setForm({ status: "À faire", priority: "Moyenne", visibility: "Oui", allowedUserIds: [currentUser?.id].filter(Boolean), sport: allSports[0]?.id || "developpe_couche", sports: [], parentId: null, coverImage: "", pendingAxes: [], newAxisName: "", customFieldValues: defaultFinancialValues(projectCustomFields), attachments: [], whatsAppDraft: { title: "", message: "", url: "" } });
     setProjectModal({ open: true, item: null });
   };
   const openNewStandaloneSubProjectModal = () => {
@@ -3808,10 +4091,13 @@ export default function JamSaaSApp() {
       status: "À faire",
       priority: "Moyenne",
       visibility: "Oui",
+      allowedUserIds: [currentUser?.id].filter(Boolean),
       sport: allSports[0]?.id || "developpe_couche",
       sports: [],
       parentId: defaultParentId,
       coverImage: "",
+      pendingAxes: [],
+      newAxisName: "",
       customFieldValues: defaultFinancialValues(projectCustomFields),
       attachments: [],
       whatsAppDraft: { title: "", message: "", url: "" },
@@ -3823,10 +4109,13 @@ export default function JamSaaSApp() {
       status: "À faire",
       priority: parentProject.priority || "Moyenne",
       visibility: parentProject.visibility || "Oui",
+      allowedUserIds: normalizeProjectAccess(parentProject, currentUser?.id),
       sport: parentProject.sport || allSports[0]?.id || "developpe_couche",
       sports: projectSportIds(parentProject),
       parentId: parentProject.id,
       coverImage: "",
+      pendingAxes: [],
+      newAxisName: "",
       customFieldValues: defaultFinancialValues(projectCustomFields),
       attachments: [],
       whatsAppDraft: { title: "", message: "", url: "" },
@@ -4356,10 +4645,10 @@ export default function JamSaaSApp() {
     window.alert(`Import terminé : ${counts.projects} projet(s), ${counts.tasks} tâche(s), ${counts.sections} section(s), ${counts.athletes} athlète(s).`);
   };
 
-  const addGlobalColumn = ({ name, type }) => {
+  const addGlobalColumn = ({ name, type, ...meta }) => {
     const entity = globalColumnModal?.entity;
     if (!entity) return;
-    const newCol = { key: "cf_" + uid().slice(0, 8), label: name, type };
+    const newCol = { key: "cf_" + uid().slice(0, 8), label: name, type, ...meta };
     setData((prev) => {
       const current = prev.tableConfig?.[entity] || { customCols: [], hiddenCols: [], renamed: {}, typeOverrides: {}, order: [], groupBy: null, filters: {} };
       return {
@@ -4399,12 +4688,34 @@ export default function JamSaaSApp() {
     .filter((task) => task.daysLeft !== null && task.daysLeft >= 0 && task.daysLeft <= 14)
     .sort((a, b) => a.daysLeft - b.daysLeft)
     .slice(0, 5);
+  const upcomingProjects = rootProjects
+    .map((project) => ({ ...project, daysLeft: daysFromToday(project.endDate, todayTime) }))
+    .filter((project) => project.status !== "Terminé" && project.daysLeft !== null && project.daysLeft >= 0 && project.daysLeft <= 14)
+    .sort((a, b) => a.daysLeft - b.daysLeft)
+    .slice(0, 5);
   const criticalTasks = openTasks.filter((task) => task.priority === "Critique" || task.priority === "Haute");
   const overdueProjects = rootProjects.filter((project) => {
     const days = daysFromToday(project.endDate, todayTime);
     return project.status !== "Terminé" && days !== null && days < 0;
   });
   const systemDeadlineNotifications = useMemo(() => [
+    ...upcomingProjects.map((project) => ({
+      id: `system-project-upcoming-${project.id}`,
+      title: `Rappel clôture projet : ${project.name}`,
+      sport: project.sport,
+      channel: "Système",
+      audience: project.owner || "Pilotage",
+      message: project.daysLeft === 0
+        ? `Le projet ${project.name} arrive à sa date de clôture aujourd'hui${project.endDate ? ` (${project.endDate})` : ""}.`
+        : `Le projet ${project.name} arrive à échéance dans ${project.daysLeft} jour${project.daysLeft > 1 ? "s" : ""}${project.endDate ? ` (${project.endDate})` : ""}.`,
+      attachmentTitle: "",
+      status: "Prêt à envoyer",
+      sentAt: "",
+      workspaceId: currentWsId,
+      systemGenerated: true,
+      sourceType: "project",
+      sourceId: project.id,
+    })),
     ...overdueProjects.map((project) => ({
       id: `system-project-overdue-${project.id}`,
       title: `Projet en retard : ${project.name}`,
@@ -4419,6 +4730,23 @@ export default function JamSaaSApp() {
       systemGenerated: true,
       sourceType: "project",
       sourceId: project.id,
+    })),
+    ...upcomingTasks.map((task) => ({
+      id: `system-task-upcoming-${task.id}`,
+      title: `Rappel clôture tâche : ${task.title}`,
+      sport: task.sport || workspaceProjects.find((project) => project.id === task.projectId)?.sport || "",
+      channel: "Système",
+      audience: task.assignee || "Pilotage",
+      message: task.daysLeft === 0
+        ? `La tâche ${task.title} arrive à sa date de clôture aujourd'hui${task.endDate ? ` (${task.endDate})` : ""}.`
+        : `La tâche ${task.title} arrive à échéance dans ${task.daysLeft} jour${task.daysLeft > 1 ? "s" : ""}${task.endDate ? ` (${task.endDate})` : ""}.`,
+      attachmentTitle: "",
+      status: "Prêt à envoyer",
+      sentAt: "",
+      workspaceId: currentWsId,
+      systemGenerated: true,
+      sourceType: "task",
+      sourceId: task.id,
     })),
     ...overdueTasks.map((task) => ({
       id: `system-task-overdue-${task.id}`,
@@ -4435,7 +4763,7 @@ export default function JamSaaSApp() {
       sourceType: "task",
       sourceId: task.id,
     })),
-  ], [overdueProjects, overdueTasks, currentWsId, workspaceProjects]);
+  ], [upcomingProjects, overdueProjects, upcomingTasks, overdueTasks, currentWsId, workspaceProjects]);
   const mergedNotifications = useMemo(() => [...systemDeadlineNotifications, ...wsNotifications], [systemDeadlineNotifications, wsNotifications]);
   const filteredNotifications = useMemo(() => mergedNotifications.filter((notif) => {
     if (filterSport !== "all" && notif.sport !== filterSport) return false;
@@ -4948,36 +5276,36 @@ export default function JamSaaSApp() {
     };
     return (
       <div className="mb-5 rounded-[28px] border border-slate-200/80 bg-white p-3.5 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.22)]">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 px-2 text-sm font-semibold text-slate-700">
+        <div className="flex flex-wrap items-stretch gap-3">
+          <div className="flex min-h-[48px] items-center gap-2 px-2 text-sm font-semibold text-slate-700">
             <Filter className="w-4 h-4 text-slate-400" />
             Filtres
             {activeCount > 0 && <Badge>{activeCount} actif{activeCount > 1 ? "s" : ""}</Badge>}
           </div>
-          <div className="relative flex-1 min-w-[220px]">
+          <div className="relative w-full min-w-0 sm:min-w-[220px] sm:flex-1">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input className="w-full rounded-2xl border border-slate-200 bg-slate-50/80 py-3 pl-9 pr-4 text-sm text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900" placeholder="Rechercher..." value={searchQ} onChange={(e) => setSearchQ(e.target.value)} />
           </div>
           {withSport && (
-            <select className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900" value={filterSport} onChange={(e) => setFilterSport(e.target.value)}>
+            <select className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 sm:w-auto" value={filterSport} onChange={(e) => setFilterSport(e.target.value)}>
               <option value="all">Tous les sports</option>
               {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           )}
           {withStatus && (
-            <select className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            <select className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 sm:w-auto" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
               <option value="all">Tous les statuts</option>
               {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
           {withPriority && (
-            <select className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900" value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)}>
+            <select className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 sm:w-auto" value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)}>
               <option value="all">Toutes les priorités</option>
               {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           )}
           {activeCount > 0 && (
-            <button onClick={clearFilters} className="flex items-center gap-2 rounded-2xl px-3 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-100">
+            <button onClick={clearFilters} className="flex w-full items-center justify-center gap-2 rounded-2xl px-3 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-100 sm:w-auto">
               <X className="w-4 h-4" />
               Réinitialiser
             </button>
@@ -4991,13 +5319,13 @@ export default function JamSaaSApp() {
     return (
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-[2rem] font-bold tracking-tight text-slate-950">{title}</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-[2rem]">{title}</h1>
           {subtitle && <p className="max-w-2xl text-sm text-slate-500 md:text-base">{subtitle}</p>}
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex w-full items-center gap-2 flex-wrap sm:w-auto">
           {actions}
           {onNew && (
-            <button onClick={onNew} className="flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">
+            <button onClick={onNew} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 sm:w-auto">
               <Plus className="w-4 h-4" /> {newLabel}
             </button>
           )}
@@ -5386,17 +5714,48 @@ export default function JamSaaSApp() {
     return renderNumberWidget(widget);
   };
 
+  const currentViewLabel = {
+    dashboard: "Tableau de bord",
+    dashboardData: "Données du tableau de bord",
+    projects: "Projets",
+    subprojects: "Axes analytiques",
+    tasks: "Tâches",
+    athletes: "Athlètes",
+    clubs: "Sections",
+    documents: "Documents",
+    convocations: "Convocations",
+    notifications: "Notifications",
+    settings: "Paramètres",
+    archives: "Archives",
+  }[view] || "JAM SaaS";
+
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 lg:flex">
       <input ref={importInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportFile} />
+      {mobileNavOpen && (
+        <button
+          type="button"
+          aria-label="Fermer le menu"
+          onClick={() => setMobileNavOpen(false)}
+          className="fixed inset-0 z-30 bg-slate-950/35 lg:hidden"
+        />
+      )}
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0 sticky top-0 h-screen">
+      <aside className={`fixed inset-y-0 left-0 z-40 flex h-screen w-72 max-w-[88vw] flex-col border-r border-slate-200 bg-white shadow-2xl transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:w-64 lg:max-w-none lg:translate-x-0 lg:shadow-none ${mobileNavOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="px-5 py-4 border-b border-slate-200">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <p className="font-bold text-slate-900 leading-none">JAM SaaS</p>
               <p className="text-xs text-slate-500 mt-0.5">v13</p>
             </div>
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(false)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 lg:hidden"
+              aria-label="Fermer le menu"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
         <WorkspaceSelector
@@ -5465,28 +5824,44 @@ export default function JamSaaSApp() {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 overflow-auto">
+      <main className="min-w-0 flex-1 overflow-x-hidden">
+        <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:hidden">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm"
+              aria-label="Ouvrir le menu"
+            >
+              <Menu className="h-4.5 w-4.5" />
+            </button>
+            <div className="min-w-0">
+              <p className="truncate text-[15px] font-semibold text-slate-900">{currentViewLabel}</p>
+              <p className="truncate text-[11px] text-slate-500">{currentWs?.name || "JAM"}</p>
+            </div>
+          </div>
+        </div>
 
         {/* ── DASHBOARD ── */}
         {view === "dashboard" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl px-4 pb-28 pt-4 sm:p-6">
             <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h1 className="text-3xl font-bold text-slate-950">Tableau de bord</h1>
-                <p className="mt-1 text-slate-500">Une vue pilotable de la JAM, avec des indicateurs que tu peux adapter.</p>
+              <div className="max-w-2xl">
+                <h1 className="text-[2.2rem] font-bold leading-none text-slate-950 sm:text-3xl">Tableau de bord</h1>
+                <p className="mt-2 text-base text-slate-500 sm:mt-1">Une vue pilotable de la JAM, avec des indicateurs que tu peux adapter.</p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
                 <button
                   type="button"
                   onClick={() => openWidgetEditor()}
-                  className="inline-flex items-center gap-2 rounded-2xl border bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 sm:px-4 sm:py-2"
                 >
                   <Plus className="h-4 w-4" /> Ajouter un widget
                 </button>
                 <button
                   type="button"
                   onClick={() => setDashboardEditMode((value) => !value)}
-                  className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold shadow-sm ${dashboardEditMode ? "bg-slate-900 text-white" : "border bg-white text-slate-700 hover:bg-slate-50"}`}
+                  className={`inline-flex items-center justify-center gap-2 rounded-2xl px-3 py-2.5 text-sm font-semibold shadow-sm sm:px-4 sm:py-2 ${dashboardEditMode ? "bg-slate-900 text-white" : "border bg-white text-slate-700 hover:bg-slate-50"}`}
                 >
                   <BarChart3 className="h-4 w-4" /> {dashboardEditMode ? "Terminer" : "Personnaliser"}
                 </button>
@@ -5494,7 +5869,7 @@ export default function JamSaaSApp() {
                   <button
                     type="button"
                     onClick={resetDashboardWidgets}
-                    className="inline-flex items-center gap-2 rounded-2xl border bg-white px-4 py-2 text-sm font-semibold text-slate-500 shadow-sm hover:bg-slate-50"
+                    className="col-span-2 inline-flex items-center justify-center gap-2 rounded-2xl border bg-white px-4 py-2.5 text-sm font-semibold text-slate-500 shadow-sm hover:bg-slate-50 sm:col-auto sm:px-4 sm:py-2"
                   >
                     Réinitialiser
                   </button>
@@ -5502,7 +5877,7 @@ export default function JamSaaSApp() {
               </div>
             </div>
 
-            <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mb-6 grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
               <StatCard
                 title="Projets principaux"
                 value={rootProjects.length}
@@ -5544,7 +5919,7 @@ export default function JamSaaSApp() {
                   <h2 className="mt-2 text-xl font-bold text-slate-950">Vue synthétique des opérations</h2>
                   <p className="mt-1 text-sm text-slate-500">Les widgets restent personnalisables, mais l’ensemble devient plus lisible et plus orienté décision.</p>
                 </div>
-                <div className="grid min-w-[260px] gap-3 sm:grid-cols-3">
+                <div className="grid w-full gap-3 sm:grid-cols-3 lg:min-w-[260px] lg:w-auto">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
                     <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Progression moyenne</p>
                     <p className="mt-2 text-2xl font-bold text-slate-950">{avgProgress}%</p>
@@ -5573,7 +5948,7 @@ export default function JamSaaSApp() {
                 </Badge>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <button
                   type="button"
                   onClick={() => openDashboardWidget({ id: "finance_total_budget", type: "number", title: "Budget total consolidé", source: "projects", filter: "budget", tone: "green" })}
@@ -5612,7 +5987,7 @@ export default function JamSaaSApp() {
                 </button>
               </div>
 
-              <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+              <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
@@ -5685,11 +6060,11 @@ export default function JamSaaSApp() {
               <p className="text-sm text-slate-500">{dashboardWidgets.length} widget{dashboardWidgets.length > 1 ? "s" : ""}</p>
             </div>
 
-            <div className="mb-5 grid gap-4 md:grid-cols-4">
+            <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {dashboardWidgets.map((widget) => renderDashboardWidget(widget))}
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
               <Card className="p-5">
                 <div className="mb-5 flex items-start justify-between gap-3">
                   <div>
@@ -5700,7 +6075,7 @@ export default function JamSaaSApp() {
                     {overdueTasks.length ? `${overdueTasks.length} retard${overdueTasks.length > 1 ? "s" : ""}` : "À jour"}
                   </Badge>
                 </div>
-                <div className="grid gap-3 md:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <button type="button" onClick={() => openDashboardWidget({ id: "operations_overdue_tasks", type: "number", title: "Tâches en retard", source: "tasks", filter: "overdue", tone: "red" })} className="rounded-2xl border border-red-100 bg-red-50 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm">
                     <p className="text-xs font-bold uppercase tracking-wide text-red-700">Tâches en retard</p>
                     <p className="mt-2 text-3xl font-bold text-red-700">{overdueTasks.length}</p>
@@ -5767,7 +6142,7 @@ export default function JamSaaSApp() {
 
         {/* ── DASHBOARD DATA ── */}
         {view === "dashboardData" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6">
             {dashboardDrilldown?.widget ? (
               <>
                 <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
@@ -5803,7 +6178,7 @@ export default function JamSaaSApp() {
                   </div>
                 </div>
 
-                <div className="mb-4 grid gap-3 md:grid-cols-4">
+                <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <Card className="p-4">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Source</p>
                     <p className="mt-1 font-semibold text-slate-900">{dashboardSourceLabel(dashboardDrilldown.widget.source)}</p>
@@ -5824,7 +6199,7 @@ export default function JamSaaSApp() {
 
                 <Card className="mb-4 p-4">
                   <div className="flex flex-wrap items-center gap-3">
-                    <div className="relative min-w-[260px] flex-1">
+                    <div className="relative w-full min-w-0 sm:min-w-[260px] sm:flex-1">
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                       <input
                         className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
@@ -5909,7 +6284,7 @@ export default function JamSaaSApp() {
 
         {/* ── PROJECTS ── */}
         {view === "projects" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6">
             <div className="mb-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-start justify-between flex-wrap gap-4">
                 <div className="min-w-0">
@@ -5933,10 +6308,6 @@ export default function JamSaaSApp() {
                 <div className="flex w-full items-center gap-2 flex-wrap justify-start xl:w-auto xl:justify-end">
                   <ViewToggle options={projectViewOptions} value={projectViewMode} onChange={setProjectViewMode} />
                   {fileActions("projects", "projets")}
-                  <button onClick={() => setGlobalColumnModal({ entity: "projects", label: "Projets" })}
-                    className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
-                    <Plus className="w-4 h-4" /> Ajouter une colonne
-                  </button>
                   <button onClick={() => setGuidedOpen(true)}
                     className="flex items-center gap-2 px-4 py-2 rounded-2xl border border-slate-900 text-slate-900 text-sm font-medium hover:bg-slate-50">
                     <Send className="w-4 h-4" /> Saisie guidée
@@ -6010,7 +6381,7 @@ export default function JamSaaSApp() {
         )}
 
         {view === "subprojects" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6">
             <div className="mb-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-start justify-between flex-wrap gap-4">
                 <div className="min-w-0">
@@ -6020,7 +6391,7 @@ export default function JamSaaSApp() {
                     </span>
                     <div>
                       <h1 className="text-2xl font-bold text-slate-900">Axes analytiques</h1>
-                      <p className="text-slate-500 mt-0.5">{filteredSubProjects.length} axe{filteredSubProjects.length > 1 ? "s analytiques" : " analytique"} affiché{filteredSubProjects.length > 1 ? "s" : ""}</p>
+                      <p className="text-slate-500 mt-0.5">{filteredSubProjects.length} axe{filteredSubProjects.length > 1 ? "s transverses" : " transverse"} affiché{filteredSubProjects.length > 1 ? "s" : ""}</p>
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -6101,7 +6472,7 @@ export default function JamSaaSApp() {
 
         {/* ── TASKS ── */}
         {view === "tasks" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6">
             <PageHeader
               title="Tâches"
               subtitle={`${filteredTasks.length} tâche${filteredTasks.length > 1 ? "s" : ""}`}
@@ -6118,6 +6489,7 @@ export default function JamSaaSApp() {
                 rows={filteredTasks}
                 nameKey="title"
                 emptyLabel="Aucune tâche trouvée."
+                allowRootColumnEditing={false}
                 builtinCols={[
                   { key: "title", label: "Tâche", type: "texte", sortable: true,
                     render: (t) => (
@@ -6185,7 +6557,7 @@ export default function JamSaaSApp() {
 
         {/* ── ATHLETES ── */}
         {view === "athletes" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6">
             <PageHeader
               title="Athlètes"
               subtitle={`${filteredAthletes.length} athlète${filteredAthletes.length > 1 ? "s" : ""}`}
@@ -6202,6 +6574,7 @@ export default function JamSaaSApp() {
                 rows={filteredAthletes}
                 nameKey="name"
                 emptyLabel="Aucun athlète trouvé."
+                allowRootColumnEditing={false}
                 builtinCols={[
                   { key: "name", label: "Athlète", type: "texte", sortable: true },
                   { key: "status", label: "Statut", type: "statut", sortable: true, options: ATHLETE_STATUS,
@@ -6239,7 +6612,7 @@ export default function JamSaaSApp() {
 
         {/* ── SECTIONS ── */}
         {view === "clubs" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6">
             <PageHeader
               title="Sections"
               subtitle={`${filteredClubs.length} section${filteredClubs.length > 1 ? "s" : ""}`}
@@ -6256,6 +6629,7 @@ export default function JamSaaSApp() {
                 rows={filteredClubs}
                 nameKey="name"
                 emptyLabel="Aucune section trouvée."
+                allowRootColumnEditing={false}
                 builtinCols={[
                   { key: "name", label: "Section", type: "texte", sortable: true },
                   { key: "status", label: "Statut", type: "statut", sortable: true, options: CLUB_STATUS,
@@ -6293,7 +6667,7 @@ export default function JamSaaSApp() {
 
         {/* ── DOCUMENTS ── */}
         {view === "documents" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6">
             <PageHeader
               title="Documents"
               subtitle={`${filteredDocs.length} document${filteredDocs.length > 1 ? "s" : ""}`}
@@ -6303,22 +6677,22 @@ export default function JamSaaSApp() {
             <div className="-mt-4 mb-5 flex justify-end">
               <ViewToggle options={tableKanbanOptions} value={documentViewMode} onChange={setDocumentViewMode} />
             </div>
-            <div className="flex flex-wrap gap-3 mb-5">
-              <div className="relative">
+            <div className="mb-5 flex flex-wrap gap-3">
+              <div className="relative w-full sm:w-auto sm:min-w-[260px]">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input className="pl-9 pr-4 py-2 rounded-2xl border text-sm bg-white" placeholder="Rechercher..." value={searchQ} onChange={(e) => setSearchQ(e.target.value)} />
+                <input className="w-full rounded-2xl border bg-white py-2 pl-9 pr-4 text-sm sm:min-w-[260px]" placeholder="Rechercher..." value={searchQ} onChange={(e) => setSearchQ(e.target.value)} />
               </div>
-              <select className="rounded-2xl border px-3 py-2 text-sm bg-white" value={filterSport} onChange={(e) => setFilterSport(e.target.value)}>
+              <select className="w-full rounded-2xl border px-3 py-2 text-sm bg-white sm:w-auto" value={filterSport} onChange={(e) => setFilterSport(e.target.value)}>
                 <option value="all">Tous les sports</option>
                 {allSports.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
-              <select className="rounded-2xl border px-3 py-2 text-sm bg-white" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+              <select className="w-full rounded-2xl border px-3 py-2 text-sm bg-white sm:w-auto" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
                 <option value="all">Tous les statuts</option>
                 {DOC_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
               {DOC_MODES.map((m) => (
                 <button key={m} onClick={() => setDocMode(m)}
-                  className={`px-3 py-2 rounded-2xl text-sm border ${docMode === m ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}>
+                  className={`w-full rounded-2xl border px-3 py-2 text-sm sm:w-auto ${docMode === m ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}>
                   {m === "all" ? "Tous" : m === "internal" ? "Internes" : "Liens externes"}
                 </button>
               ))}
@@ -6366,7 +6740,7 @@ export default function JamSaaSApp() {
 
         {/* ── CONVOCATIONS ── */}
         {view === "convocations" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6">
             <PageHeader
               title="Convocations"
               subtitle={`${filteredConvocations.length} convocation${filteredConvocations.length > 1 ? "s" : ""}`}
@@ -6420,7 +6794,7 @@ export default function JamSaaSApp() {
 
         {/* ── NOTIFICATIONS ── */}
         {view === "notifications" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6">
             <PageHeader
               title="Notifications"
               subtitle={`${filteredNotifications.length} notification${filteredNotifications.length > 1 ? "s" : ""}`}
@@ -6475,7 +6849,7 @@ export default function JamSaaSApp() {
         )}
 
         {view === "archives" && (
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6">
             <PageHeader
               title="Archives"
               subtitle="Consulte, modifie et réactive les projets et tâches sortis du flux principal."
@@ -6568,6 +6942,61 @@ export default function JamSaaSApp() {
         {view === "settings" && (
           <div className="p-6 max-w-4xl mx-auto">
             <PageHeader title="Paramètres" />
+
+            <Card className="p-6 mb-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="font-semibold text-lg">Utilisateurs et rôles</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Cette première version permet de simuler qui est connecté dans l'application et de rendre un projet confidentiel.
+                    Un projet avec <span className="font-semibold">Visible par tous : Non</span> est accessible seulement aux administrateurs, au responsable du projet et aux utilisateurs autorisés.
+                  </p>
+                </div>
+                <div className="rounded-2xl border bg-slate-50 px-4 py-3 text-sm">
+                  <p className="font-semibold text-slate-900">Session active</p>
+                  <p className="mt-1 text-slate-600">{currentUser?.name} · {currentUser?.role}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3">
+                {workspaceUsers.map((user) => {
+                  const isCurrent = user.id === currentUser?.id;
+                  return (
+                    <div key={user.id} className={`rounded-2xl border px-4 py-4 ${isCurrent ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white"}`}>
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="font-semibold text-slate-900">{user.name}</p>
+                          <p className="text-sm text-slate-500">{user.email || "Aucun email renseigné"}</p>
+                        </div>
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                          <button
+                            type="button"
+                            onClick={() => switchCurrentUser(user.id)}
+                            className={`rounded-2xl px-4 py-2 text-sm font-semibold ${isCurrent ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"}`}
+                          >
+                            {isCurrent ? "Utilisateur connecté" : "Se connecter en test"}
+                          </button>
+                          <select
+                            className="rounded-2xl border px-4 py-2 text-sm"
+                            value={user.role || "Utilisateur"}
+                            disabled={!isAdmin}
+                            onChange={(event) => updateUserRole(user.id, event.target.value)}
+                          >
+                            {USER_ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {!isAdmin && (
+                <p className="mt-4 text-xs text-slate-500">
+                  Seul un administrateur peut changer les rôles. En mode test, tu peux quand même basculer d'un utilisateur à l'autre pour vérifier la confidentialité des projets.
+                </p>
+              )}
+            </Card>
 
             <Card className="p-6 mb-6 bg-slate-50/60">
               <h2 className="font-semibold text-base mb-2">Colonnes personnalisées</h2>
@@ -6700,7 +7129,7 @@ export default function JamSaaSApp() {
                 className={`rounded-2xl border px-3 py-3 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${form.parentId ? "border-slate-900 bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}
               >
                 <span className="block">Axe analytique</span>
-                <span className={`mt-1 block text-xs font-normal ${form.parentId ? "text-slate-200" : "text-slate-500"}`}>Rattaché à un projet principal</span>
+                <span className={`mt-1 block text-xs font-normal ${form.parentId ? "text-slate-200" : "text-slate-500"}`}>Axe transverse de pilotage</span>
               </button>
             </div>
             {form.parentId && (
@@ -6710,6 +7139,47 @@ export default function JamSaaSApp() {
             )}
             {!hasAvailableProjectParent && <p className="text-xs text-slate-500">Crée d'abord un projet principal pour pouvoir créer un axe analytique.</p>}
           </div>
+          {!form.parentId && (
+            <div className="space-y-3 md:col-span-2 rounded-2xl border bg-violet-50/60 p-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-violet-700">Axes analytiques à rattacher</p>
+                <p className="mt-1 text-sm text-slate-600">Tu peux préparer ici les axes transverses de pilotage qui seront créés automatiquement avec ce projet.</p>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 rounded-2xl border bg-white px-4 py-3 text-sm"
+                  placeholder="Ex : Comptabilité, RH, Logistique..."
+                  value={form.newAxisName || ""}
+                  onChange={(e) => f("newAxisName", e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPendingAxis())}
+                />
+                <button
+                  type="button"
+                  onClick={addPendingAxis}
+                  className="rounded-2xl bg-violet-700 px-4 py-3 text-sm font-semibold text-white"
+                >
+                  Ajouter axe
+                </button>
+              </div>
+              {(form.pendingAxes || []).length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {form.pendingAxes.map((axisName) => (
+                    <span key={axisName} className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-white px-3 py-1.5 text-sm font-medium text-violet-700">
+                      {axisName}
+                      <button
+                        type="button"
+                        onClick={() => removePendingAxis(axisName)}
+                        className="rounded-full p-0.5 text-violet-500 hover:bg-violet-100 hover:text-violet-700"
+                        title={`Retirer ${axisName}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <select className="w-full rounded-2xl border px-4 py-3" value={form.status || "À faire"} onChange={(e) => f("status", e.target.value)}>
             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -6720,6 +7190,33 @@ export default function JamSaaSApp() {
             <option value="Oui">Visible par tous : Oui</option>
             <option value="Non">Projet confidentiel : Non</option>
           </select>
+          {form.visibility === "Non" && (
+            <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">Utilisateurs autorisés</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Les administrateurs voient toujours le projet. Le responsable du projet garde aussi l'accès automatiquement.
+              </p>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {workspaceUsers.map((user) => {
+                  const checked = normalizeProjectAccess(form, currentUser?.id).includes(user.id);
+                  return (
+                    <label key={user.id} className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-sm font-medium transition ${checked ? "border-slate-900 bg-white text-slate-900" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"}`}>
+                      <span>
+                        {user.name}
+                        <span className="ml-2 text-xs text-slate-400">{user.role}</span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleFormAllowedUser(user.id)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <input type="date" className="w-full rounded-2xl border px-4 py-3" value={form.startDate || ""} onChange={(e) => f("startDate", e.target.value)} />
           <input type="date" className="w-full rounded-2xl border px-4 py-3" value={form.endDate || ""} onChange={(e) => f("endDate", e.target.value)} />
           <AttachmentManager
@@ -6730,6 +7227,22 @@ export default function JamSaaSApp() {
             whatsAppDraft={form.whatsAppDraft}
             onWhatsAppDraftChange={updateWhatsAppDraft}
           />
+        </div>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Structure du tableau Projets</p>
+              <p className="mt-1 text-sm text-slate-500">Ajoute ici une colonne qui sera disponible sur tous les projets de l'application.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openScopedCustomFieldModal("projects")}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 md:w-auto"
+            >
+              <Plus className="h-4 w-4" />
+              Ajouter une colonne au tableau Projets
+            </button>
+          </div>
         </div>
         {projectCustomFields.length > 0 && (
           <div className="mt-4">
@@ -6813,6 +7326,22 @@ export default function JamSaaSApp() {
             onWhatsAppDraftChange={updateWhatsAppDraft}
           />
         </div>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Structure du tableau Tâches</p>
+              <p className="mt-1 text-sm text-slate-500">Ajoute ici une colonne qui sera disponible sur toutes les tâches de l'application.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openScopedCustomFieldModal("tasks")}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 md:w-auto"
+            >
+              <Plus className="h-4 w-4" />
+              Ajouter une colonne au tableau Tâches
+            </button>
+          </div>
+        </div>
         {taskCustomFields.length > 0 && (
           <div className="mt-4">
             <p className="text-sm font-medium text-slate-700 mb-3">Colonnes ajoutées au tableau Tâches</p>
@@ -6857,6 +7386,22 @@ export default function JamSaaSApp() {
           <input className="w-full rounded-2xl border px-4 py-3" placeholder="Téléphone" value={form.phone || ""} onChange={(e) => f("phone", e.target.value)} />
           <textarea className="w-full rounded-2xl border px-4 py-3 md:col-span-2 resize-none h-16" placeholder="Notes" value={form.notes || ""} onChange={(e) => f("notes", e.target.value)} />
         </div>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Structure du tableau Athlètes</p>
+              <p className="mt-1 text-sm text-slate-500">Ajoute ici une colonne qui sera disponible sur tous les athlètes de l'application.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openScopedCustomFieldModal("athletes")}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 md:w-auto"
+            >
+              <Plus className="h-4 w-4" />
+              Ajouter une colonne au tableau Athlètes
+            </button>
+          </div>
+        </div>
         {athleteCustomFields.length > 0 && (
           <div className="mt-4">
             <p className="text-sm font-medium text-slate-700 mb-3">Colonnes ajoutées au tableau Athlètes</p>
@@ -6888,6 +7433,22 @@ export default function JamSaaSApp() {
             onChange={(e) => f("subSectionsText", e.target.value)}
           />
           <textarea className="w-full rounded-2xl border px-4 py-3 md:col-span-2 resize-none h-16" placeholder="Notes" value={form.notes || ""} onChange={(e) => f("notes", e.target.value)} />
+        </div>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Structure du tableau Sections</p>
+              <p className="mt-1 text-sm text-slate-500">Ajoute ici une colonne qui sera disponible sur toutes les sections de l'application.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openScopedCustomFieldModal("clubs")}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 md:w-auto"
+            >
+              <Plus className="h-4 w-4" />
+              Ajouter une colonne au tableau Sections
+            </button>
+          </div>
         </div>
         {clubCustomFields.length > 0 && (
           <div className="mt-4">
@@ -6970,26 +7531,72 @@ export default function JamSaaSApp() {
 
       {/* Custom Field */}
       <Modal open={cfModal.open} title={cfModal.item ? "Modifier le champ" : "Nouveau champ personnalisé"}
-        onClose={() => { setCfModal({ open: false, item: null }); setForm({}); }} onSave={saveCF}>
+        onClose={() => { setCfModal({ open: false, item: null }); setCfForm({}); }} onSave={saveCF}>
         <div className="grid md:grid-cols-2 gap-4">
-          <input className="w-full rounded-2xl border px-4 py-3 md:col-span-2" placeholder="Nom du champ *" value={form.name || ""} onChange={(e) => f("name", e.target.value)} />
-          <select className="w-full rounded-2xl border px-4 py-3" value={form.type || "texte"} onChange={(e) => f("type", e.target.value)}>
+          <div className="md:col-span-2">
+            <input
+              className="w-full rounded-2xl border px-4 py-3"
+              placeholder={(ADD_COLUMN_HINTS[cfForm.type || "texte"] || ADD_COLUMN_HINTS.texte).placeholder}
+              value={cfForm.name || ""}
+              onChange={(e) => setCfForm((prev) => ({ ...prev, name: e.target.value }))}
+            />
+            <p className="mt-1.5 text-xs text-slate-500">{(ADD_COLUMN_HINTS[cfForm.type || "texte"] || ADD_COLUMN_HINTS.texte).helper}</p>
+          </div>
+          <select className="w-full rounded-2xl border px-4 py-3" value={cfForm.type || "texte"} onChange={(e) => setCfForm((prev) => ({ ...prev, type: e.target.value }))}>
             {CUSTOM_FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
-          <div className="flex flex-col gap-2 justify-center">
+          <div className="flex flex-col gap-2 justify-center md:col-span-2">
             <p className="text-sm text-slate-700 font-medium">Appliquer à :</p>
-            {["projects", "tasks"].map((target) => (
-              <label key={target} className="flex items-center gap-2 text-sm cursor-pointer">
+            <div className="grid gap-2 sm:grid-cols-2">
+            {CUSTOM_FIELD_TARGETS.map((target) => (
+              <label key={target.id} className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox"
-                  checked={(form.appliesTo || []).includes(target)}
+                  checked={(cfForm.appliesTo || []).includes(target.id)}
                   onChange={(e) => {
-                    const cur = form.appliesTo || [];
-                    f("appliesTo", e.target.checked ? [...cur, target] : cur.filter((x) => x !== target));
+                    const cur = cfForm.appliesTo || [];
+                    setCfForm((prev) => ({
+                      ...prev,
+                      appliesTo: e.target.checked ? [...cur, target.id] : cur.filter((x) => x !== target.id),
+                    }));
                   }} />
-                {target === "projects" ? "Projets" : "Tâches"}
+                {target.label}
               </label>
             ))}
+            </div>
           </div>
+          {(cfForm.type || "texte") === "case_a_cocher" && (
+            <>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Texte si coché</span>
+                <input
+                  className="w-full rounded-2xl border px-4 py-3"
+                  placeholder="Ex : Oui"
+                  value={cfForm.checkedLabel || "Oui"}
+                  onChange={(e) => setCfForm((prev) => ({ ...prev, checkedLabel: e.target.value }))}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Texte si non coché</span>
+                <input
+                  className="w-full rounded-2xl border px-4 py-3"
+                  placeholder="Ex : Non"
+                  value={cfForm.uncheckedLabel || "Non"}
+                  onChange={(e) => setCfForm((prev) => ({ ...prev, uncheckedLabel: e.target.value }))}
+                />
+              </label>
+            </>
+          )}
+          {(cfForm.type || "texte") === "personne" && (
+            <label className="block md:col-span-2">
+              <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Texte d'aide dans la cellule</span>
+              <input
+                className="w-full rounded-2xl border px-4 py-3"
+                placeholder="Ex : Choisir un référent"
+                value={cfForm.placeholder || ""}
+                onChange={(e) => setCfForm((prev) => ({ ...prev, placeholder: e.target.value }))}
+              />
+            </label>
+          )}
         </div>
       </Modal>
 

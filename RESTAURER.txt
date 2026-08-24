@@ -1,0 +1,23 @@
+RESTAURATION RAPIDE DU PROJET JAM SAAS
+
+Sauvegarde disponible :
+/Users/samymettidji/Desktop/jam-saas-v12-test-package/backups/jam-saas-backup-2026-07-21-15-59-14-sauvegarde-complete.tar.gz
+
+1. Ouvrir Terminal
+
+2. Lancer ces 3 commandes :
+
+cd /Users/samymettidji/Desktop
+mv jam-saas-v12-test-package jam-saas-v12-test-package-old
+mkdir jam-saas-v12-test-package && tar -xzf /Users/samymettidji/Desktop/jam-saas-v12-test-package/backups/jam-saas-backup-2026-07-21-15-59-14-sauvegarde-complete.tar.gz -C jam-saas-v12-test-package
+
+3. Relancer l'application :
+
+cd /Users/samymettidji/Desktop/jam-saas-v12-test-package
+npm install
+npm run dev
+
+Notes :
+- L'ancien projet n'est pas supprimé, il est renommé en : jam-saas-v12-test-package-old
+- Si besoin, tu peux revenir en arrière avec ce dossier
+- URL locale après lancement : http://localhost:5173/

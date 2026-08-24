@@ -1,0 +1,40 @@
+SAUVEGARDES DISPONIBLES - JAM SAAS
+
+Projet :
+/Users/samymettidji/Desktop/jam-saas-v12-test-package
+
+1) SAUVEGARDE COMPLETE
+Fichier :
+/Users/samymettidji/Desktop/jam-saas-v12-test-package/backups/jam-saas-backup-2026-07-21-15-59-14-sauvegarde-complete.tar.gz
+
+Usage :
+- restauration locale rapide
+- récupération complète du projet
+- contient aussi les dépendances installées
+
+Avantage :
+- remise en route très rapide
+
+2) SAUVEGARDE LEGERE
+Fichier :
+/Users/samymettidji/Desktop/jam-saas-v12-test-package/backups/jam-saas-backup-2026-07-21-16-31-11-sauvegarde-legere.tar.gz
+
+Usage :
+- partage facile
+- copie sur un autre ordinateur
+- archivage plus léger
+
+Avantage :
+- beaucoup plus simple à stocker et transférer
+
+IMPORTANT
+- la sauvegarde complète sert si le projet casse localement
+- la sauvegarde légère sert si tu veux envoyer ou déplacer le projet plus facilement
+- dans les deux cas, garde toujours le dossier principal intact tant que tout fonctionne
+
+FICHIERS UTILES
+- restauration rapide :
+/Users/samymettidji/Desktop/jam-saas-v12-test-package/RESTAURER.txt
+
+- dossier des sauvegardes :
+/Users/samymettidji/Desktop/jam-saas-v12-test-package/backups
