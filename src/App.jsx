@@ -1174,7 +1174,7 @@ function CustomFieldsEditor({ fields, values, onChange }) {
   );
 }
 
-function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuickTask, onNewSubProject, onEditProject, onEditTask, onArchiveProject, requestDelete, onDuplicate, projectCustomFields, onProjectStatusChange, onProjectPriorityChange, onTaskStatusChange, onTaskPriorityChange, onTaskProgressChange, onOpenAttachments }) {
+function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuickTask, onNewSubProject, onEditProject, onEditTask, onArchiveProject, requestDelete, onDuplicate, projectCustomFields, onProjectStatusChange, onProjectPriorityChange, onTaskStatusChange, onTaskPriorityChange, onTaskProgressChange, onOpenAttachments, canManageProject, canManageTask }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -1193,39 +1193,54 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
   const directTasks = tasks.filter((t) => t.projectId === node.id);
   const inheritedTasks = tasks.filter((t) => projectScope.has(t.projectId) && t.projectId !== node.id);
   const scopeTasks = [...directTasks, ...inheritedTasks];
+  const projectEditable = canManageProject ? canManageProject(node) : true;
 
   const renderTaskItem = (task, showProjectLabel = false) => {
     const prog = normalizeTaskProgress(task.progress, task.status);
     const sourceProject = projects.find((project) => project.id === task.projectId);
+    const taskEditable = canManageTask ? canManageTask(task) : true;
     return (
       <div key={task.id} className="rounded-xl border bg-white p-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <CheckCircle2 className={`w-4 h-4 shrink-0 ${task.status === "Terminé" ? "text-green-500" : "text-slate-300"}`} />
             <div className="min-w-0">
-              <button type="button" onClick={() => onEditTask?.(task)} className="truncate text-left text-sm font-medium text-slate-900 hover:underline">{task.title}</button>
+              {taskEditable ? (
+                <button type="button" onClick={() => onEditTask?.(task)} className="truncate text-left text-sm font-medium text-slate-900 hover:underline">{task.title}</button>
+              ) : (
+                <p className="truncate text-left text-sm font-medium text-slate-900">{task.title}</p>
+              )}
               {showProjectLabel && sourceProject && (
                 <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{sourceProject.name}</p>
               )}
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => onTaskStatusChange?.(task.id, nextOptionValue(STATUS_OPTIONS, task.status))}
-              className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", task.status)}`}
-              title="Cliquer pour changer le statut"
-            >
-              {task.status}
-            </button>
-            <button
-              type="button"
-              onClick={() => onTaskPriorityChange?.(task.id, nextOptionValue(PRIORITY_OPTIONS, task.priority))}
-              className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", task.priority)}`}
-              title="Cliquer pour changer la priorité"
-            >
-              {task.priority}
-            </button>
+            {taskEditable ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onTaskStatusChange?.(task.id, nextOptionValue(STATUS_OPTIONS, task.status))}
+                  className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", task.status)}`}
+                  title="Cliquer pour changer le statut"
+                >
+                  {task.status}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onTaskPriorityChange?.(task.id, nextOptionValue(PRIORITY_OPTIONS, task.priority))}
+                  className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", task.priority)}`}
+                  title="Cliquer pour changer la priorité"
+                >
+                  {task.priority}
+                </button>
+              </>
+            ) : (
+              <>
+                <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${badgeClass("status", task.status)}`}>{task.status}</span>
+                <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${badgeClass("priority", task.priority)}`}>{task.priority}</span>
+              </>
+            )}
           </div>
         </div>
         <div className="mt-2 flex items-center gap-3 pl-6">
@@ -1234,25 +1249,29 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
         </div>
         <div className="mt-2 pl-6">
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onTaskProgressChange?.(task.id, prog - 10)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
-              title="Diminuer la progression"
-            >
-              -
-            </button>
+            {taskEditable ? (
+              <button
+                type="button"
+                onClick={() => onTaskProgressChange?.(task.id, prog - 10)}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
+                title="Diminuer la progression"
+              >
+                -
+              </button>
+            ) : <div className="h-7 w-7 shrink-0" />}
             <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
               <div className={`h-full rounded-full ${progressTone(prog)}`} style={{ width: `${prog}%` }} />
             </div>
-            <button
-              type="button"
-              onClick={() => onTaskProgressChange?.(task.id, prog + 10)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
-              title="Augmenter la progression"
-            >
-              +
-            </button>
+            {taskEditable ? (
+              <button
+                type="button"
+                onClick={() => onTaskProgressChange?.(task.id, prog + 10)}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
+                title="Augmenter la progression"
+              >
+                +
+              </button>
+            ) : <div className="h-7 w-7 shrink-0" />}
             <span className="text-xs font-bold text-slate-600 w-7 text-right">{prog}%</span>
           </div>
         </div>
@@ -1270,34 +1289,49 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
           <div className="flex-1 min-w-0">
             <div className="flex gap-3">
               {node.coverImage ? (
-                <button
-                  type="button"
-                  onClick={() => onEditProject?.(node)}
-                  className="shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
-                  title="Modifier le projet"
-                >
-                  <img src={node.coverImage} alt="" className="h-20 w-28 object-cover" />
-                </button>
+                projectEditable ? (
+                  <button
+                    type="button"
+                    onClick={() => onEditProject?.(node)}
+                    className="shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                    title="Modifier le projet"
+                  >
+                    <img src={node.coverImage} alt="" className="h-20 w-28 object-cover" />
+                  </button>
+                ) : (
+                  <div className="shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <img src={node.coverImage} alt="" className="h-20 w-28 object-cover" />
+                  </div>
+                )
               ) : null}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold truncate">{node.name}</h3>
-                  <button
-                    type="button"
-                    onClick={() => onProjectStatusChange?.(node.id, nextOptionValue(STATUS_OPTIONS, node.status))}
-                    className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", node.status)}`}
-                    title="Cliquer pour changer le statut"
-                  >
-                    {node.status}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onProjectPriorityChange?.(node.id, nextOptionValue(PRIORITY_OPTIONS, node.priority))}
-                    className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", node.priority)}`}
-                    title="Cliquer pour changer la priorité"
-                  >
-                    {node.priority}
-                  </button>
+                  {projectEditable ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onProjectStatusChange?.(node.id, nextOptionValue(STATUS_OPTIONS, node.status))}
+                        className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("status", node.status)}`}
+                        title="Cliquer pour changer le statut"
+                      >
+                        {node.status}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onProjectPriorityChange?.(node.id, nextOptionValue(PRIORITY_OPTIONS, node.priority))}
+                        className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", node.priority)}`}
+                        title="Cliquer pour changer la priorité"
+                      >
+                        {node.priority}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${badgeClass("status", node.status)}`}>{node.status}</span>
+                      <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${badgeClass("priority", node.priority)}`}>{node.priority}</span>
+                    </>
+                  )}
                   {node.sportName && <Badge>{node.sportName}</Badge>}
                   {normalizeAttachments(node.attachments).length > 0 && (
                     <button
@@ -1360,6 +1394,7 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
         </div>
 
         {/* ··· context menu */}
+        {(projectEditable || onOpenAttachments) && (
         <div className="relative shrink-0" ref={menuRef}>
           <button
             onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
@@ -1369,44 +1404,49 @@ function ProjectTreeNode({ node, tasks, projects, expanded, setExpanded, onQuick
           </button>
           {menuOpen && (
             <div className="absolute right-0 top-full z-40 mt-1 bg-white rounded-xl shadow-xl border py-1 min-w-[180px]">
-              <button onClick={() => { onEditProject(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-slate-400" /> Modifier
-              </button>
-              <button onClick={() => { onQuickTask(node.id); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
-                <Plus className="w-4 h-4 text-slate-400" /> Ajouter une tâche
-              </button>
-              <button onClick={() => { onNewSubProject(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
-                <FolderKanban className="w-4 h-4 text-slate-400" /> Créer un axe analytique
-              </button>
-              <button onClick={() => { onDuplicate(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
-                <Copy className="w-4 h-4 text-slate-400" /> Dupliquer
-              </button>
-              <button onClick={() => { onArchiveProject?.(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 text-amber-700 flex items-center gap-2">
-                <Library className="w-4 h-4" /> Archiver
-              </button>
-              <div className="border-t my-1" />
-              <button onClick={() => { requestDelete("project", node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 text-red-600 flex items-center gap-2">
-                <Trash2 className="w-4 h-4" /> Supprimer
-              </button>
+              {projectEditable && (
+                <>
+                  <button onClick={() => { onEditProject(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+                    <Edit3 className="w-4 h-4 text-slate-400" /> Modifier
+                  </button>
+                  <button onClick={() => { onQuickTask(node.id); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-slate-400" /> Ajouter une tâche
+                  </button>
+                  <button onClick={() => { onNewSubProject(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+                    <FolderKanban className="w-4 h-4 text-slate-400" /> Créer un axe analytique
+                  </button>
+                  <button onClick={() => { onDuplicate(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+                    <Copy className="w-4 h-4 text-slate-400" /> Dupliquer
+                  </button>
+                  <button onClick={() => { onArchiveProject?.(node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 text-amber-700 flex items-center gap-2">
+                    <Library className="w-4 h-4" /> Archiver
+                  </button>
+                  <div className="border-t my-1" />
+                  <button onClick={() => { requestDelete("project", node); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 text-red-600 flex items-center gap-2">
+                    <Trash2 className="w-4 h-4" /> Supprimer
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
+        )}
       </div>
 
       {isOpen && childCount > 0 && (
         <div className="pl-8 mt-4 border-l-2 border-slate-100 space-y-3">
-                <ProjectTree nodes={node.children} tasks={tasks} projects={projects} expanded={expanded} setExpanded={setExpanded} onQuickTask={onQuickTask} onNewSubProject={onNewSubProject} onEditProject={onEditProject} onEditTask={onEditTask} onArchiveProject={onArchiveProject} requestDelete={requestDelete} onDuplicate={onDuplicate} projectCustomFields={projectCustomFields} onProjectStatusChange={onProjectStatusChange} onProjectPriorityChange={onProjectPriorityChange} onTaskStatusChange={onTaskStatusChange} onTaskPriorityChange={onTaskPriorityChange} onTaskProgressChange={onTaskProgressChange} onOpenAttachments={onOpenAttachments} />
+                <ProjectTree nodes={node.children} tasks={tasks} projects={projects} expanded={expanded} setExpanded={setExpanded} onQuickTask={onQuickTask} onNewSubProject={onNewSubProject} onEditProject={onEditProject} onEditTask={onEditTask} onArchiveProject={onArchiveProject} requestDelete={requestDelete} onDuplicate={onDuplicate} projectCustomFields={projectCustomFields} onProjectStatusChange={onProjectStatusChange} onProjectPriorityChange={onProjectPriorityChange} onTaskStatusChange={onTaskStatusChange} onTaskPriorityChange={onTaskPriorityChange} onTaskProgressChange={onTaskProgressChange} onOpenAttachments={onOpenAttachments} canManageProject={canManageProject} canManageTask={canManageTask} />
         </div>
       )}
     </div>
   );
 }
 
-function ProjectTree({ nodes, tasks, projects, expanded, setExpanded, onQuickTask, onNewSubProject, onEditProject, onEditTask, onArchiveProject, requestDelete, onDuplicate, projectCustomFields, onProjectStatusChange, onProjectPriorityChange, onTaskStatusChange, onTaskPriorityChange, onTaskProgressChange, onOpenAttachments }) {
+function ProjectTree({ nodes, tasks, projects, expanded, setExpanded, onQuickTask, onNewSubProject, onEditProject, onEditTask, onArchiveProject, requestDelete, onDuplicate, projectCustomFields, onProjectStatusChange, onProjectPriorityChange, onTaskStatusChange, onTaskPriorityChange, onTaskProgressChange, onOpenAttachments, canManageProject, canManageTask }) {
   return (
     <div className="space-y-3">
       {nodes.map((node) => (
-        <ProjectTreeNode key={node.id} node={node} tasks={tasks} projects={projects} expanded={expanded} setExpanded={setExpanded} onQuickTask={onQuickTask} onNewSubProject={onNewSubProject} onEditProject={onEditProject} onEditTask={onEditTask} onArchiveProject={onArchiveProject} requestDelete={requestDelete} onDuplicate={onDuplicate} projectCustomFields={projectCustomFields} onProjectStatusChange={onProjectStatusChange} onProjectPriorityChange={onProjectPriorityChange} onTaskStatusChange={onTaskStatusChange} onTaskPriorityChange={onTaskPriorityChange} onTaskProgressChange={onTaskProgressChange} onOpenAttachments={onOpenAttachments} />
+        <ProjectTreeNode key={node.id} node={node} tasks={tasks} projects={projects} expanded={expanded} setExpanded={setExpanded} onQuickTask={onQuickTask} onNewSubProject={onNewSubProject} onEditProject={onEditProject} onEditTask={onEditTask} onArchiveProject={onArchiveProject} requestDelete={requestDelete} onDuplicate={onDuplicate} projectCustomFields={projectCustomFields} onProjectStatusChange={onProjectStatusChange} onProjectPriorityChange={onProjectPriorityChange} onTaskStatusChange={onTaskStatusChange} onTaskPriorityChange={onTaskPriorityChange} onTaskProgressChange={onTaskProgressChange} onOpenAttachments={onOpenAttachments} canManageProject={canManageProject} canManageTask={canManageTask} />
       ))}
     </div>
   );
@@ -2254,7 +2294,7 @@ function StatusToggle({ options, value, onChange }) {
   );
 }
 
-function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditTask, onArchiveProject, requestDelete, onQuickTask, onNewSubProject, config, onConfigChange, customFields = [], onStatusChange, onPriorityChange, onTaskStatusChange, onTaskPriorityChange, onTaskProgressChange, onProjectFieldChange, onOpenAttachments }) {
+function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditTask, onArchiveProject, requestDelete, onQuickTask, onNewSubProject, config, onConfigChange, customFields = [], onStatusChange, onPriorityChange, onTaskStatusChange, onTaskPriorityChange, onTaskProgressChange, onProjectFieldChange, onOpenAttachments, canManageProject = () => true, canManageTask = () => true }) {
   const [expandedRows, setExpandedRows] = useState({});
   const [openColMenu, setOpenColMenu] = useState(null);
   const [submenu, setSubmenu] = useState(null); // 'sort' | 'type'
@@ -2291,6 +2331,8 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
     if (!onTaskPriorityChange) return;
     onTaskPriorityChange(task.id, nextOptionValue(PRIORITY_OPTIONS, task.priority));
   };
+  const projectEditable = (project) => canManageProject?.(project);
+  const taskEditable = (task) => canManageTask?.(task);
 
   const handleSort = (key, dir) => { setCfg({ sortCol: key, sortDir: dir }); closeMenu(); };
 
@@ -2366,7 +2408,7 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
   const renderCell = (project, col) => {
     const v = valueFor(project, col);
     if (col.builtin && col.key === "name") return null; // handled in special name cell
-    if (col.builtin && col.key === "status") return (
+    if (col.builtin && col.key === "status") return projectEditable(project) ? (
       <button
         type="button"
         onClick={() => cycleProjectStatus(project)}
@@ -2375,8 +2417,8 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
       >
         {project.status}
       </button>
-    );
-    if (col.builtin && col.key === "priority") return (
+    ) : <span className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold ${statusCellClass(project.status)}`}>{project.status}</span>;
+    if (col.builtin && col.key === "priority") return projectEditable(project) ? (
       <button
         type="button"
         onClick={() => cycleProjectPriority(project)}
@@ -2386,6 +2428,11 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
         <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClass(project.priority)}`} />
         <span>{project.priority || "—"}</span>
       </button>
+    ) : (
+      <span className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${priorityCellClass(project.priority)}`}>
+        <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClass(project.priority)}`} />
+        <span>{project.priority || "—"}</span>
+      </span>
     );
     if (col.builtin && col.key === "computedTotalProgress") return (
       <div className="flex items-center gap-2 min-w-32">
@@ -2407,7 +2454,7 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
     }
     if (col.builtin && col.key === "sportName") return <span className="text-slate-700">{project.sportName || "—"}</span>;
     if (col.builtin && col.key === "visibility") {
-      return (
+      return projectEditable(project) ? (
         <button
           type="button"
           onClick={() => onProjectFieldChange?.(project.id, "visibility", project.visibility === "Non" ? "Oui" : "Non")}
@@ -2416,10 +2463,10 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
         >
           {project.visibility || "Oui"}
         </button>
-      );
+      ) : <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${project.visibility === "Non" ? "border-slate-200 bg-slate-100 text-slate-600" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>{project.visibility || "Oui"}</span>;
     }
     if (col.builtin && col.key === "owner") {
-      return (
+      return projectEditable(project) ? (
         <input
           list="people-options"
           type="text"
@@ -2428,17 +2475,17 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
           placeholder="Responsable"
         />
-      );
+      ) : <span className="text-slate-700">{project.owner || "—"}</span>;
     }
     if (col.builtin && col.key === "endDate") {
-      return (
+      return projectEditable(project) ? (
         <input
           type="date"
           value={project.endDate || ""}
           onChange={(event) => onProjectFieldChange?.(project.id, "endDate", event.target.value)}
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
         />
-      );
+      ) : <span className="text-slate-700">{project.endDate || "—"}</span>;
     }
     if (col.builtin && col.key === "attachmentsCount") {
       const count = normalizeAttachments(project.attachments).length;
@@ -2606,6 +2653,7 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
     const childProjects = (childrenByParent[project.id] || []).filter((c) => filteredIds.has(c.id)).sort(sortFn);
     const hasChildren = childProjects.length > 0 || projectTasks.length > 0;
     const isOpen = expandedRows[project.id];
+    const canEditProject = projectEditable(project);
     const indentPx = depth * 24;
     const directTaskCount = projectTasks.length;
     const scopedTaskCount = scopedTaskCountFor(project.id);
@@ -2665,13 +2713,15 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
         <td className="border-r border-slate-200" />
         {/* Actions */}
         <td className="py-2.5 px-3 sticky right-0 bg-white/95 backdrop-blur border-l border-slate-200" onClick={(e) => e.stopPropagation()}>
-          <div className="flex gap-1.5 justify-end opacity-70 group-hover:opacity-100">
-            <button onClick={() => onEdit(project)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600" title="Modifier"><Edit3 className="w-3.5 h-3.5" /></button>
-            <button onClick={() => onQuickTask(project.id)} className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-700" title="Ajouter tâche"><Plus className="w-3.5 h-3.5" /></button>
-            <button onClick={() => onNewSubProject(project)} className="p-1.5 rounded-lg hover:bg-violet-100 text-violet-700" title="Créer un axe analytique"><FolderKanban className="w-3.5 h-3.5" /></button>
-            {onArchiveProject && <button onClick={() => onArchiveProject(project)} className="p-1.5 rounded-lg hover:bg-amber-100 text-amber-700" title="Archiver"><Library className="w-3.5 h-3.5" /></button>}
-            <button onClick={() => requestDelete("project", project)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
-          </div>
+          {canEditProject && (
+            <div className="flex gap-1.5 justify-end opacity-70 group-hover:opacity-100">
+              <button onClick={() => onEdit(project)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600" title="Modifier"><Edit3 className="w-3.5 h-3.5" /></button>
+              <button onClick={() => onQuickTask(project.id)} className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-700" title="Ajouter tâche"><Plus className="w-3.5 h-3.5" /></button>
+              <button onClick={() => onNewSubProject(project)} className="p-1.5 rounded-lg hover:bg-violet-100 text-violet-700" title="Créer un axe analytique"><FolderKanban className="w-3.5 h-3.5" /></button>
+              {onArchiveProject && <button onClick={() => onArchiveProject(project)} className="p-1.5 rounded-lg hover:bg-amber-100 text-amber-700" title="Archiver"><Library className="w-3.5 h-3.5" /></button>}
+              <button onClick={() => requestDelete("project", project)} className="p-1.5 rounded-lg hover:bg-red-100 text-red-600" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>
+            </div>
+          )}
         </td>
       </tr>
     );
@@ -2680,6 +2730,7 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
       childProjects.forEach((child) => rows.push(...renderProjectRow(child, depth + 1)));
       projectTasks.forEach((task) => {
         const prog = normalizeTaskProgress(task.progress, task.status);
+        const canEditTask = taskEditable(task);
         rows.push(
           <tr key={task.id} className="border-b border-slate-200 bg-slate-50/70 text-sm">
             <td className="border-r border-slate-200" />
@@ -2689,7 +2740,11 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
                 <div style={{ paddingLeft: indentPx + 24 }}>
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${task.status === "Terminé" ? "text-green-500" : "text-slate-300"}`} />
-                    <button type="button" onClick={() => onEditTask?.(task)} className="text-left text-slate-800 font-medium hover:underline">{task.title}</button>
+                    {canEditTask ? (
+                      <button type="button" onClick={() => onEditTask?.(task)} className="text-left text-slate-800 font-medium hover:underline">{task.title}</button>
+                    ) : (
+                      <span className="text-left text-slate-800 font-medium">{task.title}</span>
+                    )}
                     {normalizeAttachments(task.attachments).length > 0 && (
                       <button
                         type="button"
@@ -2708,51 +2763,64 @@ function ProjectTable({ projects, tasks, allProjects = projects, onEdit, onEditT
             {otherCols.map((col) => {
               if (col.key === "status") return (
                 <td key={col.key} className="py-2.5 px-3 border-r border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => cycleTaskStatus(task)}
-                    className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold transition hover:brightness-95 ${statusCellClass(task.status)}`}
-                    title="Cliquer pour changer le statut"
-                  >
-                    {task.status}
-                  </button>
+                  {canEditTask ? (
+                    <button
+                      type="button"
+                      onClick={() => cycleTaskStatus(task)}
+                      className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold transition hover:brightness-95 ${statusCellClass(task.status)}`}
+                      title="Cliquer pour changer le statut"
+                    >
+                      {task.status}
+                    </button>
+                  ) : <span className={`block w-full rounded-xl px-3 py-2 text-center text-xs font-bold ${statusCellClass(task.status)}`}>{task.status}</span>}
                 </td>
               );
               if (col.key === "priority") return (
                 <td key={col.key} className="py-2.5 px-3 border-r border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => cycleTaskPriority(task)}
-                    className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition hover:brightness-95 ${priorityCellClass(task.priority)}`}
-                    title="Cliquer pour changer la priorité"
-                  >
-                    <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClass(task.priority)}`} />
-                    <span>{task.priority || "—"}</span>
-                  </button>
+                  {canEditTask ? (
+                    <button
+                      type="button"
+                      onClick={() => cycleTaskPriority(task)}
+                      className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition hover:brightness-95 ${priorityCellClass(task.priority)}`}
+                      title="Cliquer pour changer la priorité"
+                    >
+                      <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClass(task.priority)}`} />
+                      <span>{task.priority || "—"}</span>
+                    </button>
+                  ) : (
+                    <span className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${priorityCellClass(task.priority)}`}>
+                      <span className={`h-2.5 w-2.5 rounded-full ${priorityDotClass(task.priority)}`} />
+                      <span>{task.priority || "—"}</span>
+                    </span>
+                  )}
                 </td>
               );
               if (col.key === "computedTotalProgress") return (
                 <td key={col.key} className="py-2.5 px-3 min-w-32 border-r border-slate-200">
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onTaskProgressChange?.(task.id, prog - 10)}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
-                      title="Diminuer la progression"
-                    >
-                      -
-                    </button>
+                    {canEditTask ? (
+                      <button
+                        type="button"
+                        onClick={() => onTaskProgressChange?.(task.id, prog - 10)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
+                        title="Diminuer la progression"
+                      >
+                        -
+                      </button>
+                    ) : <span className="inline-flex h-7 w-7" />}
                     <div className="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
                       <div className={`h-full rounded-full ${progressTone(prog)}`} style={{ width: `${prog}%` }} />
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onTaskProgressChange?.(task.id, prog + 10)}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
-                      title="Augmenter la progression"
-                    >
-                      +
-                    </button>
+                    {canEditTask ? (
+                      <button
+                        type="button"
+                        onClick={() => onTaskProgressChange?.(task.id, prog + 10)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-100"
+                        title="Augmenter la progression"
+                      >
+                        +
+                      </button>
+                    ) : <span className="inline-flex h-7 w-7" />}
                     <span className="text-xs font-bold text-slate-600 w-8 text-right">{prog}%</span>
                   </div>
                 </td>
@@ -3631,12 +3699,16 @@ export default function JamSaaSApp() {
   };
   const fileActions = (scope, label) => (
     <>
-      <button onClick={() => downloadImportTemplate(scope)} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
-        <FileSpreadsheet className="w-4 h-4" /> Gabarit
-      </button>
-      <button onClick={() => triggerImport(scope)} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
-        <Upload className="w-4 h-4" /> Importer {label}
-      </button>
+      {canManageEntityCollection(scope) && (
+        <>
+          <button onClick={() => downloadImportTemplate(scope)} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
+            <FileSpreadsheet className="w-4 h-4" /> Gabarit
+          </button>
+          <button onClick={() => triggerImport(scope)} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
+            <Upload className="w-4 h-4" /> Importer {label}
+          </button>
+        </>
+      )}
       <button onClick={() => exportExcel(scope)} className="flex items-center gap-2 px-4 py-2 rounded-2xl border bg-white text-slate-700 text-sm font-medium hover:bg-slate-50">
         <Download className="w-4 h-4" /> Exporter
       </button>
@@ -3645,11 +3717,20 @@ export default function JamSaaSApp() {
 
   // Handlers
   const handleQuickTask = (projectId) => {
+    const target = data.projects.find((project) => project.id === projectId);
+    if (!canManageProject(target)) {
+      denyPermission("Tu peux ajouter une tâche seulement sur un projet que tu gères.");
+      return;
+    }
     setForm({ projectId, title: "", assignee: "", status: "À faire", priority: "Moyenne", progress: 0, startDate: "", endDate: "", description: "", customFieldValues: {}, attachments: [], whatsAppDraft: { title: "", message: "", url: "" } });
     setTaskModal({ open: true, item: null });
   };
 
   const handleEditProject = (item) => {
+    if (!canManageProject(item)) {
+      denyPermission("Tu peux modifier seulement les projets que tu gères.");
+      return;
+    }
     setForm({
       ...item,
       visibility: item.visibility || "Oui",
@@ -3666,15 +3747,28 @@ export default function JamSaaSApp() {
   };
 
   const handleEditSection = (section) => {
+    if (!canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent modifier les sections.");
+      return;
+    }
     setForm({ ...section, subSectionsText: (section.subSections || []).join("\n") });
     setClubModal({ open: true, item: section });
   };
   const openTaskEditor = (task) => {
+    if (!canManageTask(task)) {
+      denyPermission("Tu peux modifier seulement les tâches que tu gères.");
+      return;
+    }
     setForm({ ...task, attachments: normalizeAttachments(task.attachments), whatsAppDraft: { title: "", message: "", url: "" } });
     setTaskModal({ open: true, item: task });
   };
 
-  const requestDelete = (type, item) => setDeleteConfirm({ open: true, type, item });
+  const requestDelete = (type, item) => {
+    if (type === "project" && !canManageProject(item)) return denyPermission("Tu peux supprimer seulement les projets que tu gères.");
+    if (type === "task" && !canManageTask(item)) return denyPermission("Tu peux supprimer seulement les tâches que tu gères.");
+    if (!["project", "task"].includes(type) && !canManageWorkspace) return denyPermission("Seuls les administrateurs et managers peuvent supprimer cet élément.");
+    setDeleteConfirm({ open: true, type, item });
+  };
 
   const confirmDelete = () => {
     const { type, item } = deleteConfirm;
@@ -3684,6 +3778,14 @@ export default function JamSaaSApp() {
   };
 
   const saveProject = () => {
+    if (!canManageWorkspace && !form.id) {
+      denyPermission("Seuls les administrateurs et managers peuvent créer un projet.");
+      return;
+    }
+    if (form.id && !canManageProject(data.projects.find((project) => project.id === form.id))) {
+      denyPermission("Tu peux modifier seulement les projets que tu gères.");
+      return;
+    }
     const parentId = form.parentId && parentOptionsForProject(form.id, data.projects).some((project) => project.id === form.parentId) ? form.parentId : null;
     const selectedSports = parentId ? Array.from(new Set((form.sports || []).filter(Boolean))) : [];
     const projectId = form.id || uid();
@@ -3736,9 +3838,18 @@ export default function JamSaaSApp() {
   };
 
   const saveTask = () => {
+    const originalTask = form.id ? data.tasks.find((task) => task.id === form.id) : null;
+    const linkedProject = workspaceProjects.find((project) => project.id === form.projectId);
+    if (!form.id && !canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent créer une tâche.");
+      return;
+    }
+    if (originalTask && !canManageTask(originalTask)) {
+      denyPermission("Tu peux modifier seulement les tâches que tu gères.");
+      return;
+    }
     const progress = normalizeTaskProgress(form.progress, form.status);
     const status = form.status === "Terminé" ? "Terminé" : statusFromProgress(progress, form.status);
-    const linkedProject = workspaceProjects.find((project) => project.id === form.projectId);
     const item = {
       workspaceId: currentWsId,
       ...form,
@@ -3756,6 +3867,10 @@ export default function JamSaaSApp() {
   };
 
   const saveAthlete = () => {
+    if (!canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent enregistrer un athlète.");
+      return;
+    }
     const section = wsClubs.find((item) => item.id === form.sectionId);
     const item = { workspaceId: currentWsId, ...form, sport: section?.sport || form.sport || "", id: form.id || uid(), customFieldValues: form.customFieldValues || {} };
     upd("athletes", (arr) => form.id ? arr.map((a) => a.id === form.id ? item : a) : [...arr, item]);
@@ -3763,6 +3878,10 @@ export default function JamSaaSApp() {
   };
 
   const saveClub = () => {
+    if (!canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent enregistrer une section.");
+      return;
+    }
     const item = {
       workspaceId: currentWsId,
       ...form,
@@ -3777,18 +3896,30 @@ export default function JamSaaSApp() {
   };
 
   const saveDoc = () => {
+    if (!canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent enregistrer un document.");
+      return;
+    }
     const item = { workspaceId: currentWsId, ...form, id: form.id || uid(), status: form.status || (form.url ? "Publié" : "Brouillon"), customFieldValues: form.customFieldValues || {} };
     upd("documents", (arr) => form.id ? arr.map((d) => d.id === form.id ? item : d) : [...arr, item]);
     setDocModal({ open: false, item: null }); setForm({});
   };
 
   const saveConv = () => {
+    if (!canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent enregistrer une convocation.");
+      return;
+    }
     const item = { ...form, id: form.id || uid() };
     upd("convocations", (arr) => form.id ? arr.map((c) => c.id === form.id ? item : c) : [...arr, item]);
     setConvModal({ open: false, item: null }); setForm({});
   };
 
   const saveNotif = () => {
+    if (!canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent enregistrer une notification.");
+      return;
+    }
     const item = { ...form, id: form.id || uid() };
     upd("notifications", (arr) => form.id ? arr.map((n) => n.id === form.id ? item : n) : [...arr, item]);
     setNotifModal({ open: false, item: null }); setForm({});
@@ -3836,19 +3967,29 @@ export default function JamSaaSApp() {
   const currentWs = (data.workspaces || []).find((ws) => ws.id === currentWsId) || data.workspaces?.[0] || null;
   const currentUser = (data.users || []).find((user) => user.id === data.currentUserId) || data.users?.[0] || defaultUsers[0];
   const isAdmin = currentUser?.role === "Administrateur";
+  const isManager = currentUser?.role === "Manager";
   const workspaceUsers = useMemo(
     () => (data.users || []).filter((user) => (user.workspaceIds || []).includes(currentWsId)),
     [data.users, currentWsId]
   );
+  const denyPermission = (message = "Tu n'as pas les droits pour cette action.") => window.alert(message);
   const switchWorkspace = (wsId) => setData((prev) => ({ ...prev, currentWorkspaceId: wsId }));
   const switchCurrentUser = (userId) => setData((prev) => ({ ...prev, currentUserId: userId }));
   const updateUserRole = (userId, role) => {
+    if (!isAdmin) {
+      denyPermission("Seul un administrateur peut changer les rôles.");
+      return;
+    }
     setData((prev) => ({
       ...prev,
       users: (prev.users || []).map((user) => user.id === userId ? { ...user, role } : user),
     }));
   };
   const saveWorkspace = () => {
+    if (!isAdmin) {
+      denyPermission("Seul un administrateur peut créer un espace de travail.");
+      return;
+    }
     if (!wsForm.name?.trim()) return;
     const ws = { id: uid(), name: wsForm.name.trim(), color: wsForm.color || "#0f172a", initial: (wsForm.name.trim()[0] || "W").toUpperCase() };
     setData((prev) => ({ ...prev, workspaces: [...(prev.workspaces || []), ws], currentWorkspaceId: ws.id }));
@@ -3856,12 +3997,24 @@ export default function JamSaaSApp() {
   };
 
   const handleDuplicate = (project) => {
+    if (!canManageProject(project)) {
+      denyPermission("Tu peux dupliquer seulement les projets que tu gères.");
+      return;
+    }
     const newId = uid();
     const clone = { ...project, id: newId, name: `${project.name} (copie)`, parentId: project.parentId, workspaceId: currentWsId };
     upd("projects", (arr) => [...arr, clone]);
   };
 
   const handleGuidedSave = (type, guidedForm) => {
+    if (["project", "task"].includes(type) && !canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent créer cet élément via la saisie guidée.");
+      return;
+    }
+    if (["athlete", "club"].includes(type) && !canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent créer cet élément via la saisie guidée.");
+      return;
+    }
     if (type === "project") {
       const item = { workspaceId: currentWsId, ...guidedForm, id: uid(), durationDays: daysBetween(guidedForm.startDate, guidedForm.endDate), customFieldValues: {} };
       upd("projects", (arr) => [...arr, item]);
@@ -3885,7 +4038,18 @@ export default function JamSaaSApp() {
     });
   };
 
+  const isProjectOwner = (project) => normalizeKey(project?.owner || "") === normalizeKey(currentUser?.name || "");
+  const isTaskAssignee = (task) => normalizeKey(task?.assignee || "") === normalizeKey(currentUser?.name || "");
+  const canManageWorkspace = isAdmin || isManager;
+  const canOpenSettings = isAdmin;
+
   const updateProjectStatus = (id, status) => {
+    const target = data.projects.find((project) => project.id === id);
+    if (!target) return;
+    if (!(canManageWorkspace || isProjectOwner(target))) {
+      denyPermission("Tu peux modifier seulement les projets dont tu es responsable.");
+      return;
+    }
     const projectScope = descendants(id, data.projects);
     upd("projects", (arr) => arr.map((project) => projectScope.has(project.id) ? { ...project, status } : project));
     upd("tasks", (arr) => arr.map((task) => {
@@ -3896,6 +4060,13 @@ export default function JamSaaSApp() {
   };
 
   const updateTaskStatus = (id, status) => {
+    const target = data.tasks.find((task) => task.id === id);
+    const linkedProject = data.projects.find((project) => project.id === target?.projectId);
+    if (!target) return;
+    if (!(canManageWorkspace || isTaskAssignee(target) || isProjectOwner(linkedProject))) {
+      denyPermission("Tu peux modifier seulement les tâches qui te sont assignées ou liées à tes projets.");
+      return;
+    }
     upd("tasks", (arr) => arr.map((task) => {
       if (task.id !== id) return task;
       const progress = normalizeTaskProgress(task.progress, status);
@@ -3904,6 +4075,13 @@ export default function JamSaaSApp() {
   };
 
   const updateTaskProgress = (id, nextProgress) => {
+    const target = data.tasks.find((task) => task.id === id);
+    const linkedProject = data.projects.find((project) => project.id === target?.projectId);
+    if (!target) return;
+    if (!(canManageWorkspace || isTaskAssignee(target) || isProjectOwner(linkedProject))) {
+      denyPermission("Tu peux modifier seulement les tâches qui te sont assignées ou liées à tes projets.");
+      return;
+    }
     upd("tasks", (arr) => arr.map((task) => {
       if (task.id !== id) return task;
       const progress = clampProgress(nextProgress);
@@ -3913,22 +4091,54 @@ export default function JamSaaSApp() {
   };
 
   const updateProjectPriority = (id, priority) => {
+    const target = data.projects.find((project) => project.id === id);
+    if (!target) return;
+    if (!(canManageWorkspace || isProjectOwner(target))) {
+      denyPermission("Tu peux modifier seulement les projets dont tu es responsable.");
+      return;
+    }
     upd("projects", (arr) => arr.map((project) => project.id === id ? { ...project, priority } : project));
   };
 
   const updateTaskPriority = (id, priority) => {
+    const target = data.tasks.find((task) => task.id === id);
+    const linkedProject = data.projects.find((project) => project.id === target?.projectId);
+    if (!target) return;
+    if (!(canManageWorkspace || isTaskAssignee(target) || isProjectOwner(linkedProject))) {
+      denyPermission("Tu peux modifier seulement les tâches qui te sont assignées ou liées à tes projets.");
+      return;
+    }
     upd("tasks", (arr) => arr.map((task) => task.id === id ? { ...task, priority } : task));
   };
 
   const toggleProjectArchived = (id, archived = true) => {
+    const target = data.projects.find((project) => project.id === id);
+    if (!target) return;
+    if (!(canManageWorkspace || isProjectOwner(target))) {
+      denyPermission("Tu peux archiver seulement les projets dont tu es responsable.");
+      return;
+    }
     upd("projects", (arr) => arr.map((project) => project.id === id ? { ...project, archived, archivedAt: archived ? new Date().toISOString() : "" } : project));
   };
 
   const toggleTaskArchived = (id, archived = true) => {
+    const target = data.tasks.find((task) => task.id === id);
+    const linkedProject = data.projects.find((project) => project.id === target?.projectId);
+    if (!target) return;
+    if (!(canManageWorkspace || isTaskAssignee(target) || isProjectOwner(linkedProject))) {
+      denyPermission("Tu peux archiver seulement les tâches qui te sont assignées ou liées à tes projets.");
+      return;
+    }
     upd("tasks", (arr) => arr.map((task) => task.id === id ? { ...task, archived, archivedAt: archived ? new Date().toISOString() : "" } : task));
   };
 
   const updateProjectField = (id, key, value) => {
+    const target = data.projects.find((project) => project.id === id);
+    if (!target) return;
+    if (!(canManageWorkspace || isProjectOwner(target))) {
+      denyPermission("Tu peux modifier seulement les projets dont tu es responsable.");
+      return;
+    }
     upd("projects", (arr) => arr.map((project) => {
       if (project.id !== id) return project;
       const next = { ...project, [key]: value };
@@ -3943,6 +4153,13 @@ export default function JamSaaSApp() {
   };
 
   const updateTaskField = (id, key, value) => {
+    const target = data.tasks.find((task) => task.id === id);
+    const linkedProject = data.projects.find((project) => project.id === target?.projectId);
+    if (!target) return;
+    if (!(canManageWorkspace || isTaskAssignee(target) || isProjectOwner(linkedProject))) {
+      denyPermission("Tu peux modifier seulement les tâches qui te sont assignées ou liées à tes projets.");
+      return;
+    }
     upd("tasks", (arr) => arr.map((task) => {
       if (task.id !== id) return task;
       const next = { ...task, [key]: value };
@@ -3954,6 +4171,10 @@ export default function JamSaaSApp() {
   };
 
   const updateAthleteField = (id, key, value) => {
+    if (!canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent modifier les athlètes.");
+      return;
+    }
     upd("athletes", (arr) => arr.map((athlete) => {
       if (athlete.id !== id) return athlete;
       if (key === "sectionId") {
@@ -3965,6 +4186,10 @@ export default function JamSaaSApp() {
   };
 
   const updateEntityStatus = (key, id, status) => {
+    if (key !== "tasks" && key !== "projects" && !canManageWorkspace) {
+      denyPermission("Seuls les administrateurs et managers peuvent modifier cette section.");
+      return;
+    }
     upd(key, (arr) => arr.map((item) => item.id === id ? { ...item, status } : item));
   };
 
@@ -3974,6 +4199,21 @@ export default function JamSaaSApp() {
     if ((project.visibility || "Oui") !== "Non") return true;
     if (normalizeKey(project.owner || "") === normalizeKey(currentUser?.name || "")) return true;
     return normalizeProjectAccess(project, currentUser?.id).includes(currentUser?.id);
+  };
+  const canManageProject = (project) => {
+    if (!project || project.workspaceId !== currentWsId) return false;
+    if (canManageWorkspace) return true;
+    return isProjectOwner(project);
+  };
+  const canManageTask = (task) => {
+    if (!task || task.workspaceId !== currentWsId) return false;
+    if (canManageWorkspace) return true;
+    if (isTaskAssignee(task)) return true;
+    const linkedProject = data.projects.find((project) => project.id === task.projectId);
+    return isProjectOwner(linkedProject);
+  };
+  const canManageEntityCollection = (key) => {
+    return canManageWorkspace;
   };
 
   // Enriched + filtered data (workspace-scoped)
@@ -5239,11 +5479,11 @@ export default function JamSaaSApp() {
     {
       label: "Système",
       items: [
-        { id: "archives", label: "Archives", Icon: Library, count: archivedProjects.length + archivedTasks.length, tooltip: `${archivedProjects.length} projet${archivedProjects.length > 1 ? "s" : ""} et ${archivedTasks.length} tâche${archivedTasks.length > 1 ? "s" : ""} archivés` },
-        { id: "settings", label: "Paramètres", Icon: BarChart3 },
-      ],
+        canManageWorkspace ? { id: "archives", label: "Archives", Icon: Library, count: archivedProjects.length + archivedTasks.length, tooltip: `${archivedProjects.length} projet${archivedProjects.length > 1 ? "s" : ""} et ${archivedTasks.length} tâche${archivedTasks.length > 1 ? "s" : ""} archivés` } : null,
+        canOpenSettings ? { id: "settings", label: "Paramètres", Icon: BarChart3 } : null,
+      ].filter(Boolean),
     },
-  ];
+  ].filter((group) => group.items.length > 0);
 
   function NavCounter({ value, active, alert, tone, tooltip }) {
     if (value === null || value === undefined) return null;
@@ -5337,13 +5577,14 @@ export default function JamSaaSApp() {
   }
 
   function ActionBtns({ onEdit, onDelete, onSubProject }) {
+    if (!onEdit && !onDelete && !onSubProject) return null;
     return (
       <div className="flex gap-2 shrink-0">
         {onSubProject && (
           <button onClick={onSubProject} className="px-3 py-2 rounded-xl border bg-white hover:bg-violet-50 text-violet-700" title="Créer un axe analytique"><FolderKanban className="w-4 h-4" /></button>
         )}
-        <button onClick={onEdit} className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50"><Edit3 className="w-4 h-4" /></button>
-        <button onClick={onDelete} className="px-3 py-2 rounded-xl border bg-white hover:bg-red-50 text-red-600"><Trash2 className="w-4 h-4" /></button>
+        {onEdit && <button onClick={onEdit} className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50"><Edit3 className="w-4 h-4" /></button>}
+        {onDelete && <button onClick={onDelete} className="px-3 py-2 rounded-xl border bg-white hover:bg-red-50 text-red-600"><Trash2 className="w-4 h-4" /></button>}
       </div>
     );
   }
@@ -5362,7 +5603,9 @@ export default function JamSaaSApp() {
     ...tableKanbanOptions,
   ];
 
-  const renderProjectKanbanCard = (project) => (
+  const renderProjectKanbanCard = (project) => {
+    const editable = canManageProject(project);
+    return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -5371,19 +5614,29 @@ export default function JamSaaSApp() {
           <p className="text-xs text-slate-500 truncate">{sportName(project.sport)}</p>
         </div>
         <div className="flex gap-2 shrink-0">
-          <button onClick={() => toggleProjectArchived(project.id, true)} className="px-3 py-2 rounded-xl border bg-white hover:bg-amber-50 text-amber-700" title="Archiver"><Library className="w-4 h-4" /></button>
-          <ActionBtns onSubProject={() => handleNewSubProject(project)} onEdit={() => handleEditProject(project)} onDelete={() => requestDelete("project", project)} />
+          {editable && (
+            <button onClick={() => toggleProjectArchived(project.id, true)} className="px-3 py-2 rounded-xl border bg-white hover:bg-amber-50 text-amber-700" title="Archiver"><Library className="w-4 h-4" /></button>
+          )}
+          <ActionBtns
+            onSubProject={editable ? () => handleNewSubProject(project) : null}
+            onEdit={editable ? () => handleEditProject(project) : null}
+            onDelete={editable ? () => requestDelete("project", project) : null}
+          />
         </div>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          onClick={() => updateProjectPriority(project.id, nextOptionValue(PRIORITY_OPTIONS, project.priority))}
-          className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", project.priority)}`}
-          title="Cliquer pour changer la priorité"
-        >
-          {project.priority}
-        </button>
+        {editable ? (
+          <button
+            type="button"
+            onClick={() => updateProjectPriority(project.id, nextOptionValue(PRIORITY_OPTIONS, project.priority))}
+            className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", project.priority)}`}
+            title="Cliquer pour changer la priorité"
+          >
+            {project.priority}
+          </button>
+        ) : (
+          <Badge className={badgeClass("priority", project.priority)}>{project.priority}</Badge>
+        )}
         {project.owner && <Badge>{project.owner}</Badge>}
         <Badge className={project.visibility === "Non" ? "bg-slate-100 text-slate-600 border-slate-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}>{project.visibility || "Oui"}</Badge>
         {normalizeAttachments(project.attachments).length > 0 && (
@@ -5404,9 +5657,11 @@ export default function JamSaaSApp() {
       </div>
     </div>
   );
+  };
 
   const renderTaskKanbanCard = (task) => {
     const progress = normalizeTaskProgress(task.progress, task.status);
+    const editable = canManageTask(task);
     return (
       <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
@@ -5414,7 +5669,7 @@ export default function JamSaaSApp() {
           <h3 className="font-semibold text-sm text-slate-900 truncate">{task.title}</h3>
           <p className="text-xs text-slate-500 truncate">{data.projects.find((project) => project.id === task.projectId)?.name || "Sans projet"}</p>
         </div>
-          <ActionBtns onEdit={() => openTaskEditor(task)} onDelete={() => requestDelete("task", task)} />
+          <ActionBtns onEdit={editable ? () => openTaskEditor(task) : null} onDelete={editable ? () => requestDelete("task", task) : null} />
         </div>
       <div className="flex flex-wrap gap-1.5">
         {normalizeAttachments(task.attachments).length > 0 && (
@@ -5427,14 +5682,18 @@ export default function JamSaaSApp() {
             <Paperclip className="h-3 w-3" /> {normalizeAttachments(task.attachments).length}
           </button>
         )}
-        <button
-            type="button"
-            onClick={() => updateTaskPriority(task.id, nextOptionValue(PRIORITY_OPTIONS, task.priority))}
-            className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", task.priority)}`}
-            title="Cliquer pour changer la priorité"
-          >
-            {task.priority}
-          </button>
+        {editable ? (
+          <button
+              type="button"
+              onClick={() => updateTaskPriority(task.id, nextOptionValue(PRIORITY_OPTIONS, task.priority))}
+              className={`rounded-full border px-2 py-1 text-xs font-semibold transition hover:brightness-95 ${badgeClass("priority", task.priority)}`}
+              title="Cliquer pour changer la priorité"
+            >
+              {task.priority}
+            </button>
+        ) : (
+          <Badge className={badgeClass("priority", task.priority)}>{task.priority}</Badge>
+        )}
           {task.assignee && <Badge>{task.assignee}</Badge>}
         </div>
         <ProgressBar value={progress} label="Avancement" />
@@ -5452,7 +5711,7 @@ export default function JamSaaSApp() {
           <h3 className="font-semibold text-sm text-slate-900 truncate">{athlete.name}</h3>
           <p className="text-xs text-slate-500 truncate">{sectionName(athlete.sectionId) || sportName(athlete.sport)}</p>
         </div>
-        <ActionBtns onEdit={() => { setForm({ ...athlete }); setAthleteModal({ open: true, item: athlete }); }} onDelete={() => requestDelete("athlete", athlete)} />
+        <ActionBtns onEdit={canManageWorkspace ? () => { setForm({ ...athlete }); setAthleteModal({ open: true, item: athlete }); } : null} onDelete={canManageWorkspace ? () => requestDelete("athlete", athlete) : null} />
       </div>
       <div className="flex flex-wrap gap-1.5">
         {athlete.subSection && <Badge>{athlete.subSection}</Badge>}
@@ -5470,7 +5729,7 @@ export default function JamSaaSApp() {
           <h3 className="font-semibold text-sm text-slate-900 truncate">{club.name}</h3>
           <p className="text-xs text-slate-500 truncate">{club.city || "Section JAM"}</p>
         </div>
-        <ActionBtns onEdit={() => handleEditSection(club)} onDelete={() => requestDelete("club", club)} />
+        <ActionBtns onEdit={canManageWorkspace ? () => handleEditSection(club) : null} onDelete={canManageWorkspace ? () => requestDelete("club", club) : null} />
       </div>
       <div className="flex flex-wrap gap-1.5">
         {club.subSections?.length > 0 && <Badge>{club.subSections.length} sous-sections</Badge>}
@@ -5486,7 +5745,7 @@ export default function JamSaaSApp() {
           <h3 className="font-semibold text-sm text-slate-900 truncate">{doc.title}</h3>
           <p className="text-xs text-slate-500 truncate">{doc.url ? "Lien externe" : "Document interne"}</p>
         </div>
-        <ActionBtns onEdit={() => { setForm({ ...doc }); setDocModal({ open: true, item: doc }); }} onDelete={() => requestDelete("document", doc)} />
+        <ActionBtns onEdit={canManageWorkspace ? () => { setForm({ ...doc }); setDocModal({ open: true, item: doc }); } : null} onDelete={canManageWorkspace ? () => requestDelete("document", doc) : null} />
       </div>
       <div className="flex flex-wrap gap-1.5">
         {doc.type && <Badge>{doc.type}</Badge>}
@@ -5503,7 +5762,7 @@ export default function JamSaaSApp() {
           <h3 className="font-semibold text-sm text-slate-900 truncate">{conv.title}</h3>
           <p className="text-xs text-slate-500 truncate">{conv.location || sportName(conv.sport)}</p>
         </div>
-        <ActionBtns onEdit={() => { setForm({ ...conv }); setConvModal({ open: true, item: conv }); }} onDelete={() => requestDelete("convocation", conv)} />
+        <ActionBtns onEdit={canManageWorkspace ? () => { setForm({ ...conv }); setConvModal({ open: true, item: conv }); } : null} onDelete={canManageWorkspace ? () => requestDelete("convocation", conv) : null} />
       </div>
       <div className="flex flex-wrap gap-1.5">
         {conv.type && <Badge>{conv.type}</Badge>}
@@ -5521,7 +5780,7 @@ export default function JamSaaSApp() {
           <p className="text-xs text-slate-500 truncate">{notif.audience || sportName(notif.sport)}</p>
         </div>
         {!notif.systemGenerated && (
-          <ActionBtns onEdit={() => { setForm({ ...notif }); setNotifModal({ open: true, item: notif }); }} onDelete={() => requestDelete("notification", notif)} />
+          <ActionBtns onEdit={canManageWorkspace ? () => { setForm({ ...notif }); setNotifModal({ open: true, item: notif }); } : null} onDelete={canManageWorkspace ? () => requestDelete("notification", notif) : null} />
         )}
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -6310,14 +6569,18 @@ export default function JamSaaSApp() {
                 <div className="flex w-full items-center gap-2 flex-wrap justify-start xl:w-auto xl:justify-end">
                   <ViewToggle options={projectViewOptions} value={projectViewMode} onChange={setProjectViewMode} />
                   {fileActions("projects", "projets")}
-                  <button onClick={() => setGuidedOpen(true)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-2xl border border-slate-900 text-slate-900 text-sm font-medium hover:bg-slate-50">
-                    <Send className="w-4 h-4" /> Saisie guidée
-                  </button>
-                  <button onClick={openNewProjectModal}
-                    className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm font-medium">
-                    <Plus className="w-4 h-4" /> Nouveau projet
-                  </button>
+                  {canManageWorkspace && (
+                    <button onClick={() => setGuidedOpen(true)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-2xl border border-slate-900 text-slate-900 text-sm font-medium hover:bg-slate-50">
+                      <Send className="w-4 h-4" /> Saisie guidée
+                    </button>
+                  )}
+                  {canManageWorkspace && (
+                    <button onClick={openNewProjectModal}
+                      className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm font-medium">
+                      <Plus className="w-4 h-4" /> Nouveau projet
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -6344,6 +6607,8 @@ export default function JamSaaSApp() {
                   onTaskPriorityChange={updateTaskPriority}
                   onTaskProgressChange={updateTaskProgress}
                   onOpenAttachments={openAttachmentViewer}
+                  canManageProject={canManageProject}
+                  canManageTask={canManageTask}
                 />
                 {!filteredRootProjects.length && <p className="text-center text-slate-500 py-12">Aucun projet principal trouvé.</p>}
               </>
@@ -6368,6 +6633,8 @@ export default function JamSaaSApp() {
                 onTaskProgressChange={updateTaskProgress}
                 onProjectFieldChange={updateProjectField}
                 onOpenAttachments={openAttachmentViewer}
+                canManageProject={canManageProject}
+                canManageTask={canManageTask}
               />
             ) : (
               <KanbanBoard
@@ -6404,10 +6671,12 @@ export default function JamSaaSApp() {
                 </div>
                 <div className="flex w-full items-center gap-2 flex-wrap justify-start xl:w-auto xl:justify-end">
                   <ViewToggle options={projectViewOptions} value={projectViewMode} onChange={setProjectViewMode} />
-                  <button onClick={openNewStandaloneSubProjectModal}
-                    className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm font-medium">
-                    <Plus className="w-4 h-4" /> Nouvel axe analytique
-                  </button>
+                  {canManageWorkspace && (
+                    <button onClick={openNewStandaloneSubProjectModal}
+                      className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm font-medium">
+                      <Plus className="w-4 h-4" /> Nouvel axe analytique
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -6434,6 +6703,8 @@ export default function JamSaaSApp() {
                   onTaskPriorityChange={updateTaskPriority}
                   onTaskProgressChange={updateTaskProgress}
                   onOpenAttachments={openAttachmentViewer}
+                  canManageProject={canManageProject}
+                  canManageTask={canManageTask}
                 />
                 {!filteredSubProjects.length && <p className="text-center text-slate-500 py-12">Aucun axe analytique trouvé.</p>}
               </>
@@ -6458,6 +6729,8 @@ export default function JamSaaSApp() {
                 onTaskProgressChange={updateTaskProgress}
                 onProjectFieldChange={updateProjectField}
                 onOpenAttachments={openAttachmentViewer}
+                canManageProject={canManageProject}
+                canManageTask={canManageTask}
               />
             ) : (
               <KanbanBoard
@@ -6479,7 +6752,7 @@ export default function JamSaaSApp() {
               title="Tâches"
               subtitle={`${filteredTasks.length} tâche${filteredTasks.length > 1 ? "s" : ""}`}
               actions={fileActions("tasks", "tâches")}
-              onNew={() => { setForm({ status: "À faire", priority: "Moyenne", progress: 0, customFieldValues: {}, attachments: [], whatsAppDraft: { title: "", message: "", url: "" } }); setTaskModal({ open: true, item: null }); }}
+              onNew={canManageWorkspace ? () => { setForm({ status: "À faire", priority: "Moyenne", progress: 0, customFieldValues: {}, attachments: [], whatsAppDraft: { title: "", message: "", url: "" } }); setTaskModal({ open: true, item: null }); } : null}
               newLabel="Nouvelle tâche"
             />
             <div className="-mt-4 mb-5 flex justify-end">
@@ -6495,7 +6768,7 @@ export default function JamSaaSApp() {
                 builtinCols={[
                   { key: "title", label: "Tâche", type: "texte", sortable: true,
                     render: (t) => (
-                      <button type="button" onClick={() => openTaskEditor(t)} className="flex items-center gap-2 text-left hover:underline">
+                      <button type="button" onClick={() => canManageTask(t) && openTaskEditor(t)} className={`flex items-center gap-2 text-left ${canManageTask(t) ? "hover:underline" : ""}`}>
                         <span className="font-semibold text-slate-900">{t.title}</span>
                         {normalizeAttachments(t.attachments).length > 0 && (
                           <button
@@ -6564,7 +6837,7 @@ export default function JamSaaSApp() {
               title="Athlètes"
               subtitle={`${filteredAthletes.length} athlète${filteredAthletes.length > 1 ? "s" : ""}`}
               actions={fileActions("athletes", "athlètes")}
-              onNew={() => { setForm({ status: "Actif" }); setAthleteModal({ open: true, item: null }); }}
+              onNew={canManageWorkspace ? () => { setForm({ status: "Actif" }); setAthleteModal({ open: true, item: null }); } : null}
               newLabel="Nouvel athlète"
             />
             <div className="-mt-4 mb-5 flex justify-end">
@@ -6619,7 +6892,7 @@ export default function JamSaaSApp() {
               title="Sections"
               subtitle={`${filteredClubs.length} section${filteredClubs.length > 1 ? "s" : ""}`}
               actions={fileActions("clubs", "sections")}
-              onNew={() => { setForm({ status: "À contacter", subSections: [] }); setClubModal({ open: true, item: null }); }}
+              onNew={canManageWorkspace ? () => { setForm({ status: "À contacter", subSections: [] }); setClubModal({ open: true, item: null }); } : null}
               newLabel="Nouvelle section"
             />
             <div className="-mt-4 mb-5 flex justify-end">
@@ -6673,7 +6946,7 @@ export default function JamSaaSApp() {
             <PageHeader
               title="Documents"
               subtitle={`${filteredDocs.length} document${filteredDocs.length > 1 ? "s" : ""}`}
-              onNew={() => { setForm({ sport: "developpe_couche", type: "Suivi sportif", status: "Brouillon", url: "", content: "" }); setDocModal({ open: true, item: null }); }}
+              onNew={canManageWorkspace ? () => { setForm({ sport: "developpe_couche", type: "Suivi sportif", status: "Brouillon", url: "", content: "" }); setDocModal({ open: true, item: null }); } : null}
               newLabel="Nouveau document"
             />
             <div className="-mt-4 mb-5 flex justify-end">
@@ -6746,7 +7019,7 @@ export default function JamSaaSApp() {
             <PageHeader
               title="Convocations"
               subtitle={`${filteredConvocations.length} convocation${filteredConvocations.length > 1 ? "s" : ""}`}
-              onNew={() => { setForm({ sport: "football", type: "Match", status: "Brouillon", workspaceId: currentWsId }); setConvModal({ open: true, item: null }); }}
+              onNew={canManageWorkspace ? () => { setForm({ sport: "football", type: "Match", status: "Brouillon", workspaceId: currentWsId }); setConvModal({ open: true, item: null }); } : null}
               newLabel="Nouvelle convocation"
             />
             <div className="-mt-4 mb-5 flex justify-end">
@@ -6800,7 +7073,7 @@ export default function JamSaaSApp() {
             <PageHeader
               title="Notifications"
               subtitle={`${filteredNotifications.length} notification${filteredNotifications.length > 1 ? "s" : ""}`}
-              onNew={() => { setForm({ sport: "developpe_couche", channel: "Email", status: "Brouillon", workspaceId: currentWsId }); setNotifModal({ open: true, item: null }); }}
+              onNew={canManageWorkspace ? () => { setForm({ sport: "developpe_couche", channel: "Email", status: "Brouillon", workspaceId: currentWsId }); setNotifModal({ open: true, item: null }); } : null}
               newLabel="Nouvelle notification"
             />
             <div className="-mt-4 mb-5 flex justify-end">
@@ -6852,90 +7125,99 @@ export default function JamSaaSApp() {
 
         {view === "archives" && (
           <div className="mx-auto max-w-7xl p-4 sm:p-6">
-            <PageHeader
-              title="Archives"
-              subtitle="Consulte, modifie et réactive les projets et tâches sortis du flux principal."
-            />
-            <div className="mb-5 flex flex-wrap items-center gap-2">
-              {[
-                { id: "projects", label: `Projets archivés (${archivedProjects.length})` },
-                { id: "tasks", label: `Tâches archivées (${archivedTasks.length})` },
-              ].map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setArchiveEntity(option.id)}
-                  className={`rounded-2xl border px-4 py-2 text-sm font-semibold ${archiveEntity === option.id ? "border-slate-900 bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-
-            {archiveEntity === "projects" ? (
-              <EntityTable
-                rows={archivedProjects}
-                nameKey="name"
-                emptyLabel="Aucun projet archivé."
-                builtinCols={[
-                  { key: "name", label: "Projet", type: "texte", sortable: true },
-                  { key: "sportName", label: "Sport", type: "texte", sortable: true, accessor: (project) => sportName(project.sport) },
-                  { key: "status", label: "Statut", type: "statut", sortable: true, options: STATUS_OPTIONS },
-                  { key: "owner", label: "Responsable", type: "personne", sortable: true },
-                  { key: "visibility", label: "Visible", type: "statut", sortable: true, options: ["Oui", "Non"] },
-                  { key: "endDate", label: "Échéance", type: "date", sortable: true },
-                  { key: "archivedAt", label: "Archivé le", type: "date", sortable: true },
-                ]}
-                config={data.tableConfig?.archivedProjects}
-                onConfigChange={(next) => setData((prev) => ({ ...prev, tableConfig: { ...(prev.tableConfig || {}), archivedProjects: next } }))}
-                onEdit={handleEditProject}
-                onUnarchive={(project) => toggleProjectArchived(project.id, false)}
-                onDelete={(project) => requestDelete("project", project)}
-                onStatusChange={updateProjectStatus}
-                onFieldChange={updateProjectField}
-                onOpenAttachments={openAttachmentViewer}
-              />
+            {!canManageWorkspace ? (
+              <Card className="p-6">
+                <h2 className="text-lg font-semibold text-slate-900">Accès réservé</h2>
+                <p className="mt-2 text-sm text-slate-600">Les archives sont visibles uniquement par les administrateurs et les managers.</p>
+              </Card>
             ) : (
-              <EntityTable
-                rows={archivedTasks}
-                nameKey="title"
-                emptyLabel="Aucune tâche archivée."
-                builtinCols={[
-                  { key: "title", label: "Tâche", type: "texte", sortable: true,
-                    render: (task) => (
-                      <button type="button" onClick={() => openTaskEditor(task)} className="flex items-center gap-2 text-left hover:underline">
-                        <span className="font-semibold text-slate-900">{task.title}</span>
-                        {normalizeAttachments(task.attachments).length > 0 && (
-                          <button
-                            type="button"
-                            onClick={(event) => { event.stopPropagation(); openAttachmentViewer(`Pièces jointes · ${task.title}`, task.attachments); }}
-                            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
-                            title="Voir les pièces jointes"
-                          >
-                            <Paperclip className="h-3 w-3" /> {normalizeAttachments(task.attachments).length}
+              <>
+                <PageHeader
+                  title="Archives"
+                  subtitle="Consulte, modifie et réactive les projets et tâches sortis du flux principal."
+                />
+                <div className="mb-5 flex flex-wrap items-center gap-2">
+                  {[
+                    { id: "projects", label: `Projets archivés (${archivedProjects.length})` },
+                    { id: "tasks", label: `Tâches archivées (${archivedTasks.length})` },
+                  ].map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setArchiveEntity(option.id)}
+                      className={`rounded-2xl border px-4 py-2 text-sm font-semibold ${archiveEntity === option.id ? "border-slate-900 bg-slate-900 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+
+                {archiveEntity === "projects" ? (
+                  <EntityTable
+                    rows={archivedProjects}
+                    nameKey="name"
+                    emptyLabel="Aucun projet archivé."
+                    builtinCols={[
+                      { key: "name", label: "Projet", type: "texte", sortable: true },
+                      { key: "sportName", label: "Sport", type: "texte", sortable: true, accessor: (project) => sportName(project.sport) },
+                      { key: "status", label: "Statut", type: "statut", sortable: true, options: STATUS_OPTIONS },
+                      { key: "owner", label: "Responsable", type: "personne", sortable: true },
+                      { key: "visibility", label: "Visible", type: "statut", sortable: true, options: ["Oui", "Non"] },
+                      { key: "endDate", label: "Échéance", type: "date", sortable: true },
+                      { key: "archivedAt", label: "Archivé le", type: "date", sortable: true },
+                    ]}
+                    config={data.tableConfig?.archivedProjects}
+                    onConfigChange={(next) => setData((prev) => ({ ...prev, tableConfig: { ...(prev.tableConfig || {}), archivedProjects: next } }))}
+                    onEdit={handleEditProject}
+                    onUnarchive={(project) => toggleProjectArchived(project.id, false)}
+                    onDelete={(project) => requestDelete("project", project)}
+                    onStatusChange={updateProjectStatus}
+                    onFieldChange={updateProjectField}
+                    onOpenAttachments={openAttachmentViewer}
+                  />
+                ) : (
+                  <EntityTable
+                    rows={archivedTasks}
+                    nameKey="title"
+                    emptyLabel="Aucune tâche archivée."
+                    builtinCols={[
+                      { key: "title", label: "Tâche", type: "texte", sortable: true,
+                        render: (task) => (
+                          <button type="button" onClick={() => canManageTask(task) && openTaskEditor(task)} className={`flex items-center gap-2 text-left ${canManageTask(task) ? "hover:underline" : ""}`}>
+                            <span className="font-semibold text-slate-900">{task.title}</span>
+                            {normalizeAttachments(task.attachments).length > 0 && (
+                              <button
+                                type="button"
+                                onClick={(event) => { event.stopPropagation(); openAttachmentViewer(`Pièces jointes · ${task.title}`, task.attachments); }}
+                                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                                title="Voir les pièces jointes"
+                              >
+                                <Paperclip className="h-3 w-3" /> {normalizeAttachments(task.attachments).length}
+                              </button>
+                            )}
                           </button>
-                        )}
-                      </button>
-                    ) },
-                  { key: "status", label: "Statut", type: "statut", sortable: true, options: STATUS_OPTIONS },
-                  { key: "priority", label: "Priorité", type: "statut", sortable: true, options: PRIORITY_OPTIONS },
-                  { key: "attachmentsCount", label: "PJ", type: "nombre", sortable: true, accessor: (task) => normalizeAttachments(task.attachments).length },
-                  { key: "projectId", label: "Projet", type: "texte", sortable: true, accessor: (task) => workspaceProjects.find((project) => project.id === task.projectId)?.name || "—" },
-                  { key: "assignee", label: "Assigné", type: "personne", sortable: true },
-                  { key: "progress", label: "Avancement", type: "nombre", sortable: true, accessor: (task) => normalizeTaskProgress(task.progress, task.status) },
-                  { key: "archivedAt", label: "Archivé le", type: "date", sortable: true },
-                ]}
-                config={data.tableConfig?.archivedTasks}
-                onConfigChange={(next) => setData((prev) => ({ ...prev, tableConfig: { ...(prev.tableConfig || {}), archivedTasks: next } }))}
-                onEdit={(task) => openTaskEditor(task)}
-                onUnarchive={(task) => toggleTaskArchived(task.id, false)}
-                onDelete={(task) => requestDelete("task", task)}
-                onStatusChange={updateTaskStatus}
-                onPriorityChange={updateTaskPriority}
-                onProgressChange={updateTaskProgress}
-                onFieldChange={updateTaskField}
-                onOpenAttachments={openAttachmentViewer}
-              />
+                        ) },
+                      { key: "status", label: "Statut", type: "statut", sortable: true, options: STATUS_OPTIONS },
+                      { key: "priority", label: "Priorité", type: "statut", sortable: true, options: PRIORITY_OPTIONS },
+                      { key: "attachmentsCount", label: "PJ", type: "nombre", sortable: true, accessor: (task) => normalizeAttachments(task.attachments).length },
+                      { key: "projectId", label: "Projet", type: "texte", sortable: true, accessor: (task) => workspaceProjects.find((project) => project.id === task.projectId)?.name || "—" },
+                      { key: "assignee", label: "Assigné", type: "personne", sortable: true },
+                      { key: "progress", label: "Avancement", type: "nombre", sortable: true, accessor: (task) => normalizeTaskProgress(task.progress, task.status) },
+                      { key: "archivedAt", label: "Archivé le", type: "date", sortable: true },
+                    ]}
+                    config={data.tableConfig?.archivedTasks}
+                    onConfigChange={(next) => setData((prev) => ({ ...prev, tableConfig: { ...(prev.tableConfig || {}), archivedTasks: next } }))}
+                    onEdit={(task) => openTaskEditor(task)}
+                    onUnarchive={(task) => toggleTaskArchived(task.id, false)}
+                    onDelete={(task) => requestDelete("task", task)}
+                    onStatusChange={updateTaskStatus}
+                    onPriorityChange={updateTaskPriority}
+                    onProgressChange={updateTaskProgress}
+                    onFieldChange={updateTaskField}
+                    onOpenAttachments={openAttachmentViewer}
+                  />
+                )}
+              </>
             )}
           </div>
         )}
@@ -6943,6 +7225,13 @@ export default function JamSaaSApp() {
         {/* ── SETTINGS ── */}
         {view === "settings" && (
           <div className="p-6 max-w-4xl mx-auto">
+            {!canOpenSettings ? (
+              <Card className="p-6">
+                <h2 className="text-lg font-semibold text-slate-900">Accès réservé</h2>
+                <p className="mt-2 text-sm text-slate-600">Seul un administrateur peut ouvrir les paramètres du workspace.</p>
+              </Card>
+            ) : (
+              <>
             <PageHeader title="Paramètres" />
 
             <Card className="p-6 mb-6">
@@ -7030,6 +7319,8 @@ export default function JamSaaSApp() {
                 <button onClick={addSport} className="px-4 py-2 rounded-2xl bg-slate-900 text-white text-sm">Ajouter</button>
               </div>
             </Card>
+              </>
+            )}
           </div>
         )}
       </main>

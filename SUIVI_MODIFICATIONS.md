@@ -104,6 +104,8 @@ Cela veut dire :
 - création de ce fichier `SUIVI_MODIFICATIONS.md` comme registre principal du projet
 - préparation d'un push GitHub propre en excluant les réglages purement locaux de `.claude`
 - nettoyage du dépôt après constat qu'un fichier de configuration locale `.claude/settings.local.json` a été poussé par erreur
+- confirmation que la modification locale restante dans `src/App.jsx` correspond au chantier de gestion des rôles et permissions
+- confirmation qu'aucune autre modification locale parasite n'est présente dans le dépôt
 
 #### Modifications poussées / à pousser
 
@@ -118,6 +120,19 @@ Cela veut dire :
 - retrait prévu de `.claude/settings.local.json` du suivi Git
 - conservation du fichier uniquement en local sur la machine
 - conservation de `.claude/launch.json` qui peut rester utile au projet
+
+#### Vérification technique complémentaire
+
+- build local exécuté avec succès via `npm run build`
+- résultat : application compilée sans erreur bloquante
+- point restant : bundle JavaScript encore volumineux, avec simple avertissement Vite sur la taille du chunk principal
+
+#### Lecture simple à date
+
+- GitHub contient bien une base propre et exploitable
+- Supabase est revenu à l'état `Healthy`
+- la seule modification locale encore ouverte est `src/App.jsx`
+- cette modification semble utile et cohérente avec la prochaine étape : droits `Administrateur / Manager / Utilisateur`
 
 ---
 
