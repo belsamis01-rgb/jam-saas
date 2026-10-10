@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ExcelJS from "exceljs";
+import { queueCloudSave } from "./cloud.js";
 import {
   LayoutDashboard,
   FolderKanban,
@@ -518,6 +519,7 @@ function loadData() {
 
 function saveData(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  queueCloudSave(data);
 }
 
 function badgeClass(kind, value) {
